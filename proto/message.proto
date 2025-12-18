@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package message;
+
+option py_generic_services = true;
+
+enum MessageType {
+  MESSAGE_UNSPECIFIED = 0;
+  MESSAGE_CLIENT_CONFIGURE_SESSION = 1; // 协商会话参数
+  MESSAGE_SERVER_CONFIRM_SESSION = 2; // 确认协商成功
+  MESSAGE_CLIENT_AUDIO_INPUT = 3;
+  MESSAGE_SERVER_ERROR = 4;
+  MESSAGE_SERVER_RESPONSE_ANIMATION = 5;
+}
+
+enum AudioFormat {
+  AUDIO_FORMAT_PCM_S16LE = 0;
+}
+
+enum TransportCompression {
+  TRANSPORT_COMPRESSION_NONE = 0;
+}
+
+message ClientConfigureSession {
+  int32 sample_rate = 1;
+  int32 bitrate = 2;
+  AudioFormat audio_format = 3;
+  TransportCompression transport_compression = 4;
+}
+
+message ServerConfirmSession {
+  string connection_id = 1;
+}
+message ClientAudioInput {
+  string req_id = 1;
+  bool end = 2;
+  bytes audio = 3;
+}
+
+message ServerError {
+  string connection_id = 1;
+  string req_id = 2;
+  int32 code = 3;
+  string message = 4;
+}
+
+message ServerResponseAnimation {
+  string connection_id = 1;
+  string req_id = 2;
+  bool end = 3;
+}
+
+message Message {
+  MessageType type = 1;
+  oneof data {
+    ClientConfigureSession client_configure_session = 2;
+    ServerConfirmSession server_confirm_session = 3;
+    ClientAudioInput client_audio_input = 4;
+    ServerError server_error = 5;
+    ServerResponseAnimation server_response_animation = 6;
+  }
+}
