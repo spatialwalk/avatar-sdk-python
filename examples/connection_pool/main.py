@@ -24,7 +24,7 @@ from avatar_sdk_python import AvatarSession, new_avatar_session, SessionTokenErr
 
 
 # Configuration
-POOL_SIZE = 3  # Number of connections to maintain
+POOL_SIZE = 100  # Number of connections to maintain
 CONCURRENT_REQUESTS = 5  # Number of concurrent audio requests per round
 NUM_ROUNDS = 10  # Number of rounds to run
 ROUND_INTERVAL = 30.0  # Seconds between rounds (total ~5 minutes with 10 rounds)
