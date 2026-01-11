@@ -14,8 +14,8 @@ async def main():
     session = new_avatar_session(
         api_key="your-api-key",
         app_id="your-app-id",
-        console_endpoint_url="https://console.example.com",
-        ingress_endpoint_url="https://ingress.example.com",
+        console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
+        ingress_endpoint_url="https://api.us-west.spatialwalk.cloud/v2/driveningress",
         avatar_id="your-avatar-id",
         expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         transport_frames=lambda frame, last: print(f"Received frame: {len(frame)} bytes"),
@@ -62,8 +62,8 @@ session = new_avatar_session(
     # in the websocket URL query params instead of headers.
     use_query_auth=False,
     expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-    console_endpoint_url="https://console.example.com",
-    ingress_endpoint_url="https://ingress.example.com",
+    console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
+    ingress_endpoint_url="https://api.us-west.spatialwalk.cloud/v2/driveningress",
     sample_rate=16000,  # Default: 16000 Hz
     transport_frames=on_frame_received,
     on_error=on_error,
@@ -80,8 +80,8 @@ config = (SessionConfigBuilder()
     .with_avatar_id("avatar-123")
     .with_api_key("your-api-key")
     .with_app_id("your-app-id")
-    .with_console_endpoint_url("https://console.example.com")
-    .with_ingress_endpoint_url("https://ingress.example.com")
+    .with_console_endpoint_url("https://console.us-west.spatialwalk.cloud/v1/console")
+    .with_ingress_endpoint_url("https://api.us-west.spatialwalk.cloud/v2/driveningress")
     .with_expire_at(datetime.now(timezone.utc) + timedelta(minutes=5))
     .with_transport_frames(on_frame_received)
     .build())
@@ -265,7 +265,7 @@ uv sync
 
 ## License
 
-See [LICENSE](../avatar-sdk-go/LICENSE) for details.
+See [LICENSE](./LICENSE) for details.
 
 ## Contributing
 
