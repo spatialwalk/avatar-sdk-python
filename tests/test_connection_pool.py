@@ -8,6 +8,7 @@ allowing testing without a real avatar backend.
 import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from avatar_sdk_python import new_avatar_session
@@ -31,8 +32,8 @@ class _DummyTask:
 
 class _FakeWebSocket:
     """Fake WebSocket for testing."""
-    
-    def __init__(self, recv_messages: list[bytes] | None = None):
+
+    def __init__(self, recv_messages: Optional[list[bytes]] = None):
         self.sent: list[bytes] = []
         self._recv_q: asyncio.Queue[bytes] = asyncio.Queue()
         for m in (recv_messages or []):

@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from typing import Optional
 from unittest.mock import patch
 
 from avatar_sdk_python import new_avatar_session
@@ -20,7 +21,7 @@ class _DummyTask:
 
 
 class _FakeWebSocket:
-    def __init__(self, recv_messages: list[bytes] | None = None):
+    def __init__(self, recv_messages: Optional[list[bytes]] = None):
         self.sent: list[bytes] = []
         self._recv_q: asyncio.Queue[bytes] = asyncio.Queue()
         for m in (recv_messages or []):

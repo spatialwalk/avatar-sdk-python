@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from aiohttp import web
 
@@ -66,7 +66,7 @@ def _load_audio_bytes(asset: AudioAsset) -> bytes:
 class _Collector:
     frames: list[bytes]
     last: bool
-    error: Exception | None
+    error: Optional[Exception]
     done: Any  # asyncio.Event (kept untyped to avoid importing asyncio at module level)
 
 
@@ -143,8 +143,8 @@ async def handle_generate(request: web.Request) -> web.Response:
         on_close=on_close,
     )
 
-    connection_id: str | None = None
-    req_id: str | None = None
+    connection_id: Optional[str] = None
+    req_id: Optional[str] = None
     try:
         await session.init()
         connection_id = await session.start()

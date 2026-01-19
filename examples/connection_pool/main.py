@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Optional
 
 from avatar_sdk_python import AvatarSession, new_avatar_session, SessionTokenError
 
@@ -41,16 +41,16 @@ class RequestResult:
     frame_count: int
     duration_ms: float
     success: bool
-    error: str | None = None
+    error: Optional[str] = None
 
 
 @dataclass
 class AnimationCollector:
     """Collects animation frames from an avatar session."""
-    
+
     frames: list[bytes] = field(default_factory=list)
     last: bool = False
-    error: Exception | None = None
+    error: Optional[Exception] = None
     _done: asyncio.Event = field(default_factory=asyncio.Event)
     
     def transport_frame(self, data: bytes, last: bool) -> None:
@@ -79,7 +79,7 @@ class AnimationCollector:
         self.error = None
         self._done = asyncio.Event()
     
-    async def wait(self, timeout: float | None = None) -> None:
+    async def wait(self, timeout: Optional[float] = None) -> None:
         """Wait for collection to complete."""
         try:
             await asyncio.wait_for(self._done.wait(), timeout=timeout)
