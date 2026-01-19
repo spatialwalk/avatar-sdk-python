@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from avatar_sdk_python import new_avatar_session, SessionTokenError
+from avatarkit import new_avatar_session, SessionTokenError
 
 
 # Configuration

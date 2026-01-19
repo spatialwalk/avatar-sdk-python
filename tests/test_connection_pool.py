@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from avatar_sdk_python import new_avatar_session
-from avatar_sdk_python.proto.generated import message_pb2
+from avatarkit import new_avatar_session
+from avatarkit.proto.generated import message_pb2
 
 
 class _DummyTask:
@@ -231,9 +231,9 @@ class TestAvatarConnectionPool(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=5,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         self.assertEqual(pool.total_count, 3)
@@ -276,9 +276,9 @@ class TestAvatarConnectionPool(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=5,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         self.assertEqual(pool.available_count, 1)
@@ -329,9 +329,9 @@ class TestAvatarConnectionPool(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=5,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         acquired_connections = []
@@ -403,9 +403,9 @@ class TestAvatarConnectionPool(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=5,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Use connections a few times
@@ -481,9 +481,9 @@ class TestConcurrentAudioProcessing(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=5,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Simulate frames being received in the background
@@ -576,9 +576,9 @@ class TestLongLivedConnections(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=10,  # 10 minute TTL to cover 5 minute test
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Record initial connection IDs
@@ -679,9 +679,9 @@ class TestLongLivedConnections(unittest.IsolatedAsyncioTestCase):
             
             pool_main.datetime = MockDateTime()
             
-            with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-                 patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-                 patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+            with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+                 patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+                 patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
                 await pool.initialize()
             
             # Verify connection was created at start_time
@@ -737,9 +737,9 @@ class TestLongLivedConnections(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=10,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Simulate 5 minutes worth of requests
@@ -810,9 +810,9 @@ class TestLongLivedConnections(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=10,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Simulate 5 minutes of concurrent activity
@@ -888,9 +888,9 @@ class TestLongLivedConnections(unittest.IsolatedAsyncioTestCase):
             session_ttl_minutes=10,
         )
         
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), \
-             patch("avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task), \
-             patch("avatar_sdk_python.avatar_session.AvatarSession.init", new=fake_init):
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), \
+             patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task), \
+             patch("avatarkit.avatar_session.AvatarSession.init", new=fake_init):
             await pool.initialize()
         
         # Should have created exactly 2 connections during init

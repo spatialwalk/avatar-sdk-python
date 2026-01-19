@@ -1,5 +1,5 @@
 [project]
-name = "avatar-sdk-python"
+name = "avatarkit"
 version = "0.1.0"
 description = "Python SDK for avatar WebSocket services with audio streaming and animation frame reception"
 readme = "README.md"

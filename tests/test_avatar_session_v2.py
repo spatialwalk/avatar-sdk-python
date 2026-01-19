@@ -3,8 +3,8 @@ import unittest
 from typing import Optional
 from unittest.mock import patch
 
-from avatar_sdk_python import new_avatar_session
-from avatar_sdk_python.proto.generated import message_pb2
+from avatarkit import new_avatar_session
+from avatarkit.proto.generated import message_pb2
 
 
 class _DummyTask:
@@ -87,8 +87,8 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"  # bypass init()
 
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
+            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
         ):
             cid = await session.start()
 
@@ -133,8 +133,8 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"
 
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
+            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
         ):
             await session.start()
 
@@ -186,8 +186,8 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"
 
-        with patch("avatar_sdk_python.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatar_sdk_python.avatar_session.asyncio.create_task", new=fake_create_task
+        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
+            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
         ):
             with self.assertRaises(ConnectionError):
                 await session.start()

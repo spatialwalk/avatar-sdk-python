@@ -7,7 +7,7 @@ A Python SDK for connecting to avatar services via WebSocket, supporting audio s
 ```python
 import asyncio
 from datetime import datetime, timedelta, timezone
-from avatar_sdk_python import new_avatar_session
+from avatarkit import new_avatar_session
 
 async def main():
     # Create session
@@ -52,7 +52,7 @@ The SDK provides two ways to configure a session:
 #### Option 1: Using `new_avatar_session()` (Recommended)
 
 ```python
-from avatar_sdk_python import new_avatar_session
+from avatarkit import new_avatar_session
 
 session = new_avatar_session(
     avatar_id="avatar-123",
@@ -74,7 +74,7 @@ session = new_avatar_session(
 #### Option 2: Using Configuration Builder
 
 ```python
-from avatar_sdk_python import SessionConfigBuilder, AvatarSession
+from avatarkit import SessionConfigBuilder, AvatarSession
 
 config = (SessionConfigBuilder()
     .with_avatar_id("avatar-123")
@@ -239,7 +239,7 @@ cd proto
 buf generate
 ```
 
-The generated Python code is placed in `src/avatar_sdk_python/proto/generated/`.
+The generated Python code is placed in `src/avatarkit/proto/generated/`.
 
 ### Message Types
 

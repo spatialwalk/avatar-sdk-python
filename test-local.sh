@@ -1,5 +1,5 @@
 #!/bin/bash
-# Local testing script for avatar-sdk-python
+# Local testing script for avatarkit
 # Tests across multiple Python versions and dependency combinations
 
 set -e
