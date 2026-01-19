@@ -14,7 +14,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from avatar_sdk_python import new_avatar_session, SessionTokenError
 
@@ -31,7 +31,7 @@ class AnimationCollector:
     def __init__(self):
         self.frames: List[bytes] = []
         self.last = False
-        self.error: Exception | None = None
+        self.error: Optional[Exception] = None
         self._done = asyncio.Event()
     
     def transport_frame(self, data: bytes, last: bool):
@@ -54,13 +54,13 @@ class AnimationCollector:
         else:
             self.finish(None)
     
-    def finish(self, error: Exception | None):
+    def finish(self, error: Optional[Exception]):
         """Mark collection as finished."""
         if error and not self.error:
             self.error = error
         self._done.set()
     
-    async def wait(self, timeout: float | None = None):
+    async def wait(self, timeout: Optional[float] = None):
         """Wait for collection to complete."""
         try:
             await asyncio.wait_for(self._done.wait(), timeout=timeout)

@@ -6,19 +6,23 @@ readme = "README.md"
 authors = [
     { name = "3DRX", email = "3drxkjy@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.9"
 keywords = ["avatar", "websocket", "sdk", "audio", "animation", "protobuf"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "aiohttp>=3.13.2",
+    "aiohttp>=3.9.0",
     "nanoid>=2.0.0",
-    "protobuf>=6.33.2",
-    "websockets>=15.0.1",
+    "protobuf>=5.28.3",
+    "websockets>=10.0",
 ]
 
 [build-system]
@@ -27,5 +31,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=7.0.0",
+    "tox>=4.0.0",
 ]
