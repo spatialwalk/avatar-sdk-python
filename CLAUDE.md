@@ -30,15 +30,17 @@ cd proto && buf generate
 
 ## Architecture
 
-This is a Python SDK for WebSocket-based avatar services with audio streaming and animation frame reception.
+This is a Python SDK for WebSocket-based avatar services with audio streaming and animation frame reception. Published as `avatarkit` on PyPI.
 
 ### Core Components
 
-- **`avatar_session.py`** - Main `AvatarSession` class managing WebSocket connections, audio streaming, and frame reception. Uses v2 protocol with HTTP-based session token acquisition followed by WebSocket handshake.
+- **`avatar_session.py`** - Main `AvatarSession` class managing WebSocket connections, audio streaming, and frame reception. Uses v2 protocol with HTTP-based session token acquisition followed by WebSocket handshake. Exports `SessionTokenError` for token acquisition failures.
 
 - **`session_config.py`** - `SessionConfig` dataclass and `SessionConfigBuilder` (fluent builder pattern) for session configuration.
 
-- **`errors.py`** - `AvatarSDKError` exception with stable error codes (`AvatarSDKErrorCode` enum).
+- **`errors.py`** - `AvatarSDKError` exception with stable error codes (`AvatarSDKErrorCode` enum). Error codes: `sessionTokenExpired`, `sessionTokenInvalid`, `appIDUnrecognized`, `unknown`.
+
+- **`logid.py`** - `generate_log_id()` utility for generating unique log IDs in format "YYYYMMDDHHMMSS_<nanoid>".
 
 - **`proto/generated/`** - Auto-generated protobuf code from `proto/message.proto`. Message types: ClientConfigureSession, ServerConfirmSession, ClientAudioInput, ServerError, ServerResponseAnimation.
 

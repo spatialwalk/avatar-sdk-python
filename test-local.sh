@@ -24,6 +24,7 @@ show_usage() {
     echo "  py311            - Test Python 3.11 only"
     echo "  py312            - Test Python 3.12 only"
     echo "  py313            - Test Python 3.13 only"
+    echo "  py314            - Test Python 3.14 only"
     echo "  min              - Test with minimum dependency versions (all Python versions)"
     echo "  latest           - Test with latest dependency versions (all Python versions)"
     echo "  quick            - Test current Python version only"
@@ -41,17 +42,17 @@ case "${1:-quick}" in
         echo "Running tests on all Python versions with all dependency combinations..."
         uv run tox
         ;;
-    py39|py310|py311|py312|py313)
+    py39|py310|py311|py312|py313|py314)
         echo "Running tests for $1..."
         uv run tox -e $1,$1-min,$1-latest
         ;;
     min)
         echo "Running tests with minimum dependency versions..."
-        uv run tox -e py39-min,py310-min,py311-min,py312-min,py313-min
+        uv run tox -e py39-min,py310-min,py311-min,py312-min,py313-min,py314-min
         ;;
     latest)
         echo "Running tests with latest dependency versions..."
-        uv run tox -e py39-latest,py310-latest,py311-latest,py312-latest,py313-latest
+        uv run tox -e py39-latest,py310-latest,py311-latest,py312-latest,py313-latest,py314-latest
         ;;
     quick)
         echo "Running quick test on current Python version..."
