@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
 
-from avatar_sdk_python import AvatarSession, new_avatar_session, SessionTokenError
+from avatarkit import AvatarSession, new_avatar_session, SessionTokenError
 
 
 # Configuration

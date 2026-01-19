@@ -184,7 +184,7 @@ wheels = [
 ]
 
 [[package]]
-name = "avatar-sdk-python"
+name = "avatarkit"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

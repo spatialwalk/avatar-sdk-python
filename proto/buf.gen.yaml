@@ -1,4 +1,4 @@
 version: v2
 plugins:
   - remote: buf.build/protocolbuffers/python:v28.3
-    out: ../src/avatar_sdk_python/proto/generated
+    out: ../src/avatarkit/proto/generated
