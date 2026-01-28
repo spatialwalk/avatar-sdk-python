@@ -11,6 +11,7 @@ enum MessageType {
   MESSAGE_CLIENT_AUDIO_INPUT = 3;
   MESSAGE_SERVER_ERROR = 4;
   MESSAGE_SERVER_RESPONSE_ANIMATION = 5;
+  MESSAGE_CLIENT_INTERRUPT = 7; // 打断
 }
 
 enum AudioFormat {
@@ -21,16 +22,42 @@ enum TransportCompression {
   TRANSPORT_COMPRESSION_NONE = 0;
 }
 
+// EgressType specifies how animation and audio data should be delivered
+enum EgressType {
+  EGRESS_TYPE_UNSPECIFIED = 0; // Default: return animation data via WebSocket
+  EGRESS_TYPE_LIVEKIT = 1;     // Stream to LiveKit room via egress service
+}
+
+// LiveKitEgressConfig contains configuration for streaming to a LiveKit room
+message LiveKitEgressConfig {
+  // LiveKit server URL (e.g., wss://livekit.example.com)
+  string url = 1;
+  // LiveKit API key
+  string api_key = 2;
+  // LiveKit API secret
+  string api_secret = 3;
+  // LiveKit room name to join
+  string room_name = 4;
+  // Publisher identity in the room
+  string publisher_id = 5;
+}
+
 message ClientConfigureSession {
   int32 sample_rate = 1;
   int32 bitrate = 2;
   AudioFormat audio_format = 3;
   TransportCompression transport_compression = 4;
+  // Egress configuration (optional)
+  // If egress_type is UNSPECIFIED or not set, animation data is returned via WebSocket
+  EgressType egress_type = 5;
+  // LiveKit egress configuration (required when egress_type is EGRESS_TYPE_LIVEKIT)
+  LiveKitEgressConfig livekit_egress = 6;
 }
 
 message ServerConfirmSession {
   string connection_id = 1;
 }
+
 message ClientAudioInput {
   string req_id = 1;
   bool end = 2;
@@ -50,6 +77,10 @@ message ServerResponseAnimation {
   bool end = 3;
 }
 
+message ClientInterrupt {
+  string req_id = 1;
+}
+
 message Message {
   MessageType type = 1;
   oneof data {
@@ -58,5 +89,6 @@ message Message {
     ClientAudioInput client_audio_input = 4;
     ServerError server_error = 5;
     ServerResponseAnimation server_response_animation = 6;
+    ClientInterrupt client_interrupt = 8;
   }
 }

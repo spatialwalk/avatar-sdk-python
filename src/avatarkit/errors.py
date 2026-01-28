@@ -30,5 +30,3 @@ class AvatarSDKError(Exception):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.code.value}: {self.message}"
-
-
