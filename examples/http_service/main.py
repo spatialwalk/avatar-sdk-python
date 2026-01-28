@@ -32,7 +32,6 @@ from aiohttp import web
 
 from avatarkit import AvatarSDKError, SessionTokenError, new_avatar_session
 
-
 _AUDIO_RE = re.compile(r"^audio_(?P<rate>\d+)\.pcm$")
 
 _DEFAULT_SESSION_TTL_MINUTES = 2
@@ -135,7 +134,8 @@ async def handle_generate(request: web.Request) -> web.Response:
         console_endpoint_url=sdk_cfg["console_endpoint_url"],
         ingress_endpoint_url=sdk_cfg["ingress_endpoint_url"],
         avatar_id=sdk_cfg["avatar_id"],
-        expire_at=datetime.now(timezone.utc) + timedelta(minutes=_DEFAULT_SESSION_TTL_MINUTES),
+        expire_at=datetime.now(timezone.utc)
+        + timedelta(minutes=_DEFAULT_SESSION_TTL_MINUTES),
         sample_rate=sample_rate_int,
         bitrate=0,
         transport_frames=transport_frames,
@@ -152,18 +152,28 @@ async def handle_generate(request: web.Request) -> web.Response:
 
         import asyncio
 
-        await asyncio.wait_for(collector.done.wait(), timeout=_DEFAULT_REQUEST_TIMEOUT_SECONDS)
+        await asyncio.wait_for(
+            collector.done.wait(), timeout=_DEFAULT_REQUEST_TIMEOUT_SECONDS
+        )
         if collector.error:
             raise collector.error
     except SessionTokenError as e:
-        return web.json_response({"error": "session_token_error", "message": str(e)}, status=502)
+        return web.json_response(
+            {"error": "session_token_error", "message": str(e)}, status=502
+        )
     except AvatarSDKError as e:
         return web.json_response(
-            {"error": "sdk_error", "code": getattr(e.code, "value", str(e.code)), "message": e.message},
+            {
+                "error": "sdk_error",
+                "code": getattr(e.code, "value", str(e.code)),
+                "message": e.message,
+            },
             status=502,
         )
     except Exception as e:
-        return web.json_response({"error": "request_failed", "message": str(e)}, status=502)
+        return web.json_response(
+            {"error": "request_failed", "message": str(e)}, status=502
+        )
     finally:
         try:
             await session.close()
@@ -177,7 +187,9 @@ async def handle_generate(request: web.Request) -> web.Response:
             "audio_base64": base64.b64encode(audio).decode("utf-8"),
             "connection_id": connection_id,
             "req_id": req_id,
-            "animation_messages_base64": [base64.b64encode(m).decode("utf-8") for m in collector.frames],
+            "animation_messages_base64": [
+                base64.b64encode(m).decode("utf-8") for m in collector.frames
+            ],
         }
     )
 
@@ -238,5 +250,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

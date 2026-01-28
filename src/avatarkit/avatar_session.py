@@ -1,19 +1,19 @@
 """Main AvatarSession implementation for managing avatar websocket sessions."""
 
 import asyncio
-import json
 import inspect
+import json
 from typing import Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+import aiohttp
 import websockets
 from websockets.client import WebSocketClientProtocol
 
-from .session_config import SessionConfig, SessionConfigBuilder
-from .logid import generate_log_id
 from .errors import AvatarSDKError, AvatarSDKErrorCode
+from .logid import generate_log_id
 from .proto.generated import message_pb2
-
+from .session_config import SessionConfig, SessionConfigBuilder
 
 SESSION_TOKEN_PATH = "/session-tokens"
 INGRESS_WEBSOCKET_PATH = "/websocket"
@@ -21,24 +21,25 @@ INGRESS_WEBSOCKET_PATH = "/websocket"
 
 class SessionTokenError(Exception):
     """Raised when session token request fails."""
+
     pass
 
 
 class AvatarSession:
     """
     Manages an active avatar session with websocket communication.
-    
+
     The session handles:
     - Session token acquisition from console API
     - WebSocket connection to ingress endpoint
     - Audio streaming to the server
     - Receiving animation frames from the server
     """
-    
+
     def __init__(self, config: SessionConfig):
         """
         Initialize a new AvatarSession with the provided configuration.
-        
+
         Args:
             config: SessionConfig instance with session parameters.
         """
@@ -46,18 +47,21 @@ class AvatarSession:
         self._session_token: Optional[str] = None
         self._connection: Optional[WebSocketClientProtocol] = None
         self._current_req_id: Optional[str] = None
+        self._last_req_id: Optional[str] = (
+            None  # tracks most recent request for interrupt
+        )
         self._read_task: Optional[asyncio.Task] = None
         self._connection_id: Optional[str] = None
-    
+
     @property
     def config(self) -> SessionConfig:
         """Get a copy of the session configuration."""
         return self._config
-    
+
     async def init(self) -> None:
         """
         Exchange configuration credentials for a session token from the console API.
-        
+
         Raises:
             ValueError: If configuration is missing required fields.
             SessionTokenError: If token request fails.
@@ -68,71 +72,57 @@ class AvatarSession:
             raise ValueError("Missing console endpoint URL")
         if not self._config.expire_at:
             raise ValueError("Missing expireAt")
-        
+
         endpoint = self._config.console_endpoint_url.rstrip("/") + SESSION_TOKEN_PATH
-        
-        payload = {
-            "expireAt": int(self._config.expire_at.timestamp())
-        }
-        
+
+        payload = {"expireAt": int(self._config.expire_at.timestamp())}
+
         headers = {
             "X-Api-Key": self._config.api_key,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-        
-        try:
-            import aiohttp
-        except ImportError:
-            raise ImportError(
-                "aiohttp is required for AvatarSession. "
-                "Install it with: uv add aiohttp"
-            )
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                endpoint, 
-                json=payload, 
-                headers=headers
+                endpoint, json=payload, headers=headers
             ) as response:
                 response_text = await response.text()
-                
+
                 if response.status != 200:
                     try:
                         error_data = json.loads(response_text)
                         error_msg = self._format_session_token_error(
-                            response.status, 
-                            error_data
+                            response.status, error_data
                         )
                     except json.JSONDecodeError:
                         error_msg = f"Request failed with status {response.status}"
                     raise SessionTokenError(error_msg)
-                
+
                 try:
                     response_data = json.loads(response_text)
                 except json.JSONDecodeError as e:
                     raise SessionTokenError(f"Failed to decode response: {e}")
-                
+
                 errors = response_data.get("errors", [])
                 if errors:
                     error_msg = self._format_session_token_error(
-                        response.status, 
-                        response_data
+                        response.status, response_data
                     )
                     raise SessionTokenError(error_msg)
-                
+
                 session_token = response_data.get("sessionToken")
                 if not session_token:
                     raise SessionTokenError("Empty session token in response")
-                
+
                 self._session_token = session_token
-    
+
     async def start(self) -> str:
         """
         Establish WebSocket connection to the ingress endpoint.
-        
+
         Returns:
             Connection ID for tracking this session.
-        
+
         Raises:
             ValueError: If configuration is invalid or session not initialized.
             ConnectionError: If WebSocket connection fails.
@@ -147,13 +137,15 @@ class AvatarSession:
             raise ValueError("Missing avatar ID")
         if not self._config.app_id:
             raise ValueError("Missing app ID")
-        
-        endpoint = self._config.ingress_endpoint_url.rstrip("/") + INGRESS_WEBSOCKET_PATH
-        
+
+        endpoint = (
+            self._config.ingress_endpoint_url.rstrip("/") + INGRESS_WEBSOCKET_PATH
+        )
+
         # Parse URL and convert to WebSocket scheme
         parsed = urlparse(endpoint)
         scheme = parsed.scheme.lower()
-        
+
         if scheme == "http":
             ws_scheme = "ws"
         elif scheme == "https":
@@ -164,7 +156,7 @@ class AvatarSession:
             raise ValueError("Ingress endpoint scheme missing")
         else:
             raise ValueError(f"Unsupported scheme: {scheme}")
-        
+
         # Add avatar ID to query parameters
         query_params = parse_qs(parsed.query)
         query_params["id"] = [self._config.avatar_id]
@@ -182,16 +174,18 @@ class AvatarSession:
             }
 
         new_query = urlencode(query_params, doseq=True)
-        
-        ws_url = urlunparse((
-            ws_scheme,
-            parsed.netloc,
-            parsed.path,
-            parsed.params,
-            new_query,
-            parsed.fragment
-        ))
-        
+
+        ws_url = urlunparse(
+            (
+                ws_scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                parsed.fragment,
+            )
+        )
+
         try:
             # websockets renamed `extra_headers` -> `additional_headers` in newer releases.
             # If we pass the wrong kwarg, it may get forwarded to asyncio's
@@ -199,16 +193,23 @@ class AvatarSession:
             #   "... got an unexpected keyword argument 'extra_headers'"
             connect_sig = inspect.signature(websockets.connect)
             if "additional_headers" in connect_sig.parameters:
-                self._connection = await websockets.connect(ws_url, additional_headers=headers)
+                self._connection = await websockets.connect(
+                    ws_url, additional_headers=headers
+                )
             elif "extra_headers" in connect_sig.parameters:
-                self._connection = await websockets.connect(ws_url, extra_headers=headers)
+                self._connection = await websockets.connect(
+                    ws_url, extra_headers=headers
+                )
             else:
                 # Fallback: some variants accept `headers=...`
                 self._connection = await websockets.connect(ws_url, headers=headers)  # type: ignore[call-arg]
         except Exception as e:
             code = self._map_ws_connect_error_to_code(e)
             if code is not None:
-                raise AvatarSDKError(code=code, message=f"WebSocket auth failed (HTTP {getattr(e, 'status_code', getattr(e, 'status', 'unknown'))})") from e
+                raise AvatarSDKError(
+                    code=code,
+                    message=f"WebSocket auth failed (HTTP {getattr(e, 'status_code', getattr(e, 'status', 'unknown'))})",
+                ) from e
             raise ConnectionError(f"Failed to connect to websocket: {e}") from e
 
         # v2 handshake:
@@ -232,7 +233,29 @@ class AvatarSession:
         msg.client_configure_session.sample_rate = int(self._config.sample_rate)
         msg.client_configure_session.bitrate = int(self._config.bitrate)
         msg.client_configure_session.audio_format = message_pb2.AUDIO_FORMAT_PCM_S16LE
-        msg.client_configure_session.transport_compression = message_pb2.TRANSPORT_COMPRESSION_NONE
+        msg.client_configure_session.transport_compression = (
+            message_pb2.TRANSPORT_COMPRESSION_NONE
+        )
+
+        # Add LiveKit egress configuration if provided
+        if self._config.livekit_egress is not None:
+            msg.client_configure_session.egress_type = message_pb2.EGRESS_TYPE_LIVEKIT
+            msg.client_configure_session.livekit_egress.url = (
+                self._config.livekit_egress.url
+            )
+            msg.client_configure_session.livekit_egress.api_key = (
+                self._config.livekit_egress.api_key
+            )
+            msg.client_configure_session.livekit_egress.api_secret = (
+                self._config.livekit_egress.api_secret
+            )
+            msg.client_configure_session.livekit_egress.room_name = (
+                self._config.livekit_egress.room_name
+            )
+            msg.client_configure_session.livekit_egress.publisher_id = (
+                self._config.livekit_egress.publisher_id
+            )
+
         await self._connection.send(msg.SerializeToString())
 
     async def _await_server_confirm_session(self) -> str:
@@ -245,18 +268,24 @@ class AvatarSession:
             raise ConnectionError(f"Failed during websocket handshake: {e}") from e
 
         if not isinstance(raw, (bytes, bytearray)):
-            raise ConnectionError("Failed during websocket handshake: expected binary protobuf message")
+            raise ConnectionError(
+                "Failed during websocket handshake: expected binary protobuf message"
+            )
 
         envelope = message_pb2.Message()
         try:
             envelope.ParseFromString(bytes(raw))
         except Exception as e:
-            raise ConnectionError(f"Failed during websocket handshake: invalid protobuf payload ({e})") from e
+            raise ConnectionError(
+                f"Failed during websocket handshake: invalid protobuf payload ({e})"
+            ) from e
 
         if envelope.type == message_pb2.MESSAGE_SERVER_CONFIRM_SESSION:
             cid = envelope.server_confirm_session.connection_id
             if not cid:
-                raise ConnectionError("Handshake succeeded but server_confirm_session.connection_id is empty")
+                raise ConnectionError(
+                    "Handshake succeeded but server_confirm_session.connection_id is empty"
+                )
             return cid
 
         if envelope.type == message_pb2.MESSAGE_SERVER_ERROR:
@@ -265,49 +294,84 @@ class AvatarSession:
                 f"ServerError during handshake (connection_id={err.connection_id}, req_id={err.req_id}, code={err.code}): {err.message}"
             )
 
-        raise ConnectionError(f"Unexpected message during handshake: type={envelope.type}")
-    
+        raise ConnectionError(
+            f"Unexpected message during handshake: type={envelope.type}"
+        )
+
     async def send_audio(self, audio: bytes, end: bool = False) -> str:
         """
         Send audio data to the server.
-        
+
         Currently supports 16kHz mono 16-bit PCM audio only.
-        
+
         Args:
             audio: Raw audio bytes to send.
             end: Whether this is the last audio chunk for the current request.
-        
+
         Returns:
             Request ID for tracking this audio request.
-        
+
         Raises:
             ValueError: If connection is not established.
         """
         if self._connection is None:
             raise ValueError("WebSocket connection is not established")
-        
+
         # Generate or reuse request ID
         if not self._current_req_id:
             self._current_req_id = generate_log_id()
-        
+            self._last_req_id = self._current_req_id
+
         req_id = self._current_req_id
-        
+
         # Create protobuf message
         msg = message_pb2.Message()
         msg.type = message_pb2.MESSAGE_CLIENT_AUDIO_INPUT
         msg.client_audio_input.req_id = req_id
         msg.client_audio_input.audio = audio
         msg.client_audio_input.end = end
-        
+
         # Serialize and send
         data = msg.SerializeToString()
         await self._connection.send(data)
 
         if end:
             self._current_req_id = None
-        
+
         return req_id
-    
+
+    async def interrupt(self) -> str:
+        """
+        Send an interrupt signal to stop the current audio processing.
+
+        Returns:
+            The request ID that was interrupted.
+
+        Raises:
+            ValueError: If connection is not established or no request to interrupt.
+        """
+        if self._connection is None:
+            raise ValueError("interrupt: websocket connection is not established")
+
+        # Use last_req_id which tracks the most recent request, even after end=True
+        req_id = self._last_req_id
+        if not req_id:
+            raise ValueError("interrupt: no request to interrupt")
+
+        # Create protobuf message
+        msg = message_pb2.Message()
+        msg.type = message_pb2.MESSAGE_CLIENT_INTERRUPT
+        msg.client_interrupt.req_id = req_id
+
+        # Serialize and send
+        data = msg.SerializeToString()
+        await self._connection.send(data)
+
+        # Clear current request ID so next send_audio creates a new one
+        self._current_req_id = None
+
+        return req_id
+
     async def close(self) -> None:
         """
         Close the WebSocket connection and clean up resources.
@@ -319,7 +383,7 @@ class AvatarSession:
                 pass
             finally:
                 self._connection = None
-        
+
         if self._read_task is not None:
             # If we're calling close() from inside the read task itself (e.g. the
             # read loop's finally block), don't cancel/await ourselves.
@@ -330,15 +394,15 @@ class AvatarSession:
                 except asyncio.CancelledError:
                     pass
             self._read_task = None
-        
+
         # Call close callback
         if self._config.on_close:
             try:
                 self._config.on_close()
-            except Exception as e:
+            except Exception:
                 # Don't let callback errors propagate
                 pass
-    
+
     async def _read_loop(self) -> None:
         """Background task that reads messages from the WebSocket."""
         try:
@@ -361,7 +425,7 @@ class AvatarSession:
         finally:
             # Ensure connection is closed
             await self.close()
-    
+
     async def _handle_binary_message(self, payload: bytes) -> None:
         """Handle a binary message received from the server."""
         try:
@@ -374,7 +438,7 @@ class AvatarSession:
                 except Exception:
                     pass
             return
-        
+
         if envelope.type == message_pb2.MESSAGE_SERVER_RESPONSE_ANIMATION:
             if self._config.transport_frames:
                 # Make a copy of the payload
@@ -385,7 +449,7 @@ class AvatarSession:
                     self._config.transport_frames(frame, is_last)
                 except Exception:
                     pass
-        
+
         elif envelope.type == message_pb2.MESSAGE_SERVER_ERROR:
             if self._config.on_error:
                 err = envelope.server_error
@@ -428,14 +492,14 @@ class AvatarSession:
         if status_int == 404:
             return AvatarSDKErrorCode.appIDUnrecognized
         return None
-    
+
     @staticmethod
     def _format_session_token_error(status: int, response_data: dict) -> str:
         """Format session token error response into readable message."""
         errors = response_data.get("errors", [])
         if not errors:
             return f"Unknown error with status {status}"
-        
+
         err = errors[0]
         return (
             f"Error {err.get('status', status)} ({err.get('code', 'unknown')}): "
@@ -446,13 +510,13 @@ class AvatarSession:
 def new_avatar_session(**kwargs) -> AvatarSession:
     """
     Create a new AvatarSession with the provided configuration options.
-    
+
     Args:
         **kwargs: Configuration parameters matching SessionConfig fields.
-    
+
     Returns:
         A new AvatarSession instance.
-    
+
     Example:
         ```python
         session = new_avatar_session(
@@ -465,7 +529,7 @@ def new_avatar_session(**kwargs) -> AvatarSession:
         ```
     """
     builder = SessionConfigBuilder()
-    
+
     if "avatar_id" in kwargs:
         builder.with_avatar_id(kwargs["avatar_id"])
     if "api_key" in kwargs:
@@ -490,6 +554,8 @@ def new_avatar_session(**kwargs) -> AvatarSession:
         builder.with_console_endpoint_url(kwargs["console_endpoint_url"])
     if "ingress_endpoint_url" in kwargs:
         builder.with_ingress_endpoint_url(kwargs["ingress_endpoint_url"])
-    
+    if "livekit_egress" in kwargs:
+        builder.with_livekit_egress(kwargs["livekit_egress"])
+
     config = builder.build()
     return AvatarSession(config)

@@ -36,13 +36,13 @@ This is a Python SDK for WebSocket-based avatar services with audio streaming an
 
 - **`avatar_session.py`** - Main `AvatarSession` class managing WebSocket connections, audio streaming, and frame reception. Uses v2 protocol with HTTP-based session token acquisition followed by WebSocket handshake. Exports `SessionTokenError` for token acquisition failures.
 
-- **`session_config.py`** - `SessionConfig` dataclass and `SessionConfigBuilder` (fluent builder pattern) for session configuration.
+- **`session_config.py`** - `SessionConfig` dataclass, `LiveKitEgressConfig` dataclass, and `SessionConfigBuilder` (fluent builder pattern) for session configuration.
 
 - **`errors.py`** - `AvatarSDKError` exception with stable error codes (`AvatarSDKErrorCode` enum). Error codes: `sessionTokenExpired`, `sessionTokenInvalid`, `appIDUnrecognized`, `unknown`.
 
 - **`logid.py`** - `generate_log_id()` utility for generating unique log IDs in format "YYYYMMDDHHMMSS_<nanoid>".
 
-- **`proto/generated/`** - Auto-generated protobuf code from `proto/message.proto`. Message types: ClientConfigureSession, ServerConfirmSession, ClientAudioInput, ServerError, ServerResponseAnimation.
+- **`proto/generated/`** - Auto-generated protobuf code from `proto/message.proto`. Message types: ClientConfigureSession, ServerConfirmSession, ClientAudioInput, ServerError, ServerResponseAnimation, ClientInterrupt.
 
 ### Session Flow
 
@@ -50,8 +50,9 @@ This is a Python SDK for WebSocket-based avatar services with audio streaming an
 2. `session.init()` - HTTP POST to console API for session token
 3. `session.start()` - WebSocket connection + v2 handshake, returns connection_id
 4. `session.send_audio()` - Send PCM audio via protobuf
-5. Background read loop delivers animation frames via `transport_frames` callback
-6. `session.close()` - Cleanup
+5. Optional: `session.interrupt()` - Stop current audio processing
+6. Background read loop delivers animation frames via `transport_frames` callback
+7. `session.close()` - Cleanup
 
 ### Audio Format
 
@@ -62,3 +63,42 @@ Mono 16-bit PCM (s16le) only. Supported sample rates: 8000, 16000, 22050, 24000,
 Two modes controlled by `use_query_auth`:
 - `False` (default): Headers-based auth (mobile pattern)
 - `True`: Query params-based auth (web pattern)
+
+### LiveKit Egress Mode
+
+When configured with `livekit_egress`, audio and animation data are streamed to a LiveKit room via the egress service instead of being returned through the WebSocket connection. The egress configuration is sent via the `ClientConfigureSession` proto message.
+
+To use LiveKit egress mode:
+1. Configure the session with `livekit_egress=LiveKitEgressConfig(...)`
+2. Provide LiveKit connection details: url, api_key, api_secret, room_name, and publisher_id
+3. The server will create an egress connection and stream output to the LiveKit room
+4. The `transport_frames` callback will not be invoked since data goes to LiveKit
+
+```python
+from avatarkit import new_avatar_session, LiveKitEgressConfig
+
+session = new_avatar_session(
+    livekit_egress=LiveKitEgressConfig(
+        url="wss://livekit.example.com",
+        api_key="your-api-key",
+        api_secret="your-api-secret",
+        room_name="room-name",
+        publisher_id="publisher-id",
+    ),
+    # ... other options
+)
+```
+
+### Interrupt Functionality
+
+The `interrupt()` method sends an interrupt signal to stop current audio processing. It returns the request ID that was interrupted.
+
+```python
+# Send some audio
+req_id = await session.send_audio(audio_data, end=True)
+
+# Interrupt if needed (e.g., user wants to stop)
+interrupted_id = await session.interrupt()
+```
+
+The interrupt uses `last_req_id` which tracks the most recent request, even after `end=True` was sent. This allows interrupting requests that have finished sending audio but are still being processed.

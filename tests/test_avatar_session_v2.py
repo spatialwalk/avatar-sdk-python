@@ -24,7 +24,7 @@ class _FakeWebSocket:
     def __init__(self, recv_messages: Optional[list[bytes]] = None):
         self.sent: list[bytes] = []
         self._recv_q: asyncio.Queue[bytes] = asyncio.Queue()
-        for m in (recv_messages or []):
+        for m in recv_messages or []:
             self._recv_q.put_nowait(m)
         self._iter_q: asyncio.Queue[bytes] = asyncio.Queue()
         self._closed = False
@@ -87,8 +87,9 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"  # bypass init()
 
-        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
         ):
             cid = await session.start()
 
@@ -133,8 +134,9 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"
 
-        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
         ):
             await session.start()
 
@@ -171,7 +173,9 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_raises_on_server_error_during_handshake(self):
         async def fake_connect(url, additional_headers=None, **_kwargs):
-            return _FakeWebSocket(recv_messages=[_mk_server_error(code=400, message="bad params")])
+            return _FakeWebSocket(
+                recv_messages=[_mk_server_error(code=400, message="bad params")]
+            )
 
         def fake_create_task(coro):
             coro.close()
@@ -186,10 +190,9 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         )
         session._session_token = "tok-1"
 
-        with patch("avatarkit.avatar_session.websockets.connect", new=fake_connect), patch(
-            "avatarkit.avatar_session.asyncio.create_task", new=fake_create_task
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
         ):
             with self.assertRaises(ConnectionError):
                 await session.start()
-
-
