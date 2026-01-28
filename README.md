@@ -22,20 +22,20 @@ async def main():
         on_error=lambda err: print(f"Error: {err}"),
         on_close=lambda: print("Session closed")
     )
-    
+
     # Initialize and connect
     await session.init()
     connection_id = await session.start()
     print(f"Connected: {connection_id}")
-    
+
     # Send audio
     audio_data = b"..."  # Your PCM audio data
     request_id = await session.send_audio(audio_data, end=True)
     print(f"Sent audio: {request_id}")
-    
+
     # Wait for frames...
     await asyncio.sleep(10)
-    
+
     # Close
     await session.close()
 
@@ -126,6 +126,50 @@ with open("audio.pcm", "rb") as f:
 await session.send_audio(audio_data, end=True)
 ```
 
+### LiveKit Egress Mode
+
+When configured with `livekit_egress`, audio and animation data are streamed to a LiveKit room via the egress service instead of being returned through the WebSocket connection.
+
+```python
+from avatarkit import new_avatar_session, LiveKitEgressConfig
+
+session = new_avatar_session(
+    avatar_id="avatar-123",
+    api_key="your-api-key",
+    app_id="your-app-id",
+    console_endpoint_url="https://console.example.com/v1/console",
+    ingress_endpoint_url="https://api.example.com/v2/driveningress",
+    expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    livekit_egress=LiveKitEgressConfig(
+        url="wss://livekit.example.com",
+        api_key="livekit-api-key",
+        api_secret="livekit-api-secret",
+        room_name="my-room",
+        publisher_id="avatar-publisher",
+    ),
+)
+```
+
+When LiveKit egress is enabled:
+- The server streams output to the specified LiveKit room
+- The `transport_frames` callback will not be invoked
+- Audio and animation data are published to the room under the specified publisher ID
+
+#### Interrupt (LiveKit Egress Only)
+
+The `interrupt()` method sends an interrupt signal to stop current audio processing. This is only available when using LiveKit egress mode.
+
+```python
+# Send audio
+request_id = await session.send_audio(audio_data, end=True)
+
+# Later, if you need to interrupt (e.g., user wants to stop playback)
+interrupted_id = await session.interrupt()
+print(f"Interrupted request: {interrupted_id}")
+```
+
+The interrupt uses the most recent request ID, even after `end=True` was sent. This allows interrupting requests that have finished sending audio but are still being processed by the server.
+
 ### Callbacks
 
 #### Transport Frames Callback
@@ -169,6 +213,7 @@ Main class for managing avatar sessions.
 - `async init()` - Initialize session and obtain token
 - `async start() -> str` - Start WebSocket connection, returns connection ID
 - `async send_audio(audio: bytes, end: bool = False) -> str` - Send audio data, returns request ID
+- `async interrupt() -> str` - Interrupt current audio processing (LiveKit egress mode only), returns interrupted request ID
 - `async close()` - Close the session and clean up resources
 - `config -> SessionConfig` - Get session configuration (property)
 
@@ -190,6 +235,19 @@ Configuration dataclass for avatar sessions.
 - `on_close: Callable[[], None]` - Close callback
 - `console_endpoint_url: str` - Console API URL
 - `ingress_endpoint_url: str` - Ingress WebSocket URL
+- `livekit_egress: Optional[LiveKitEgressConfig]` - LiveKit egress configuration
+
+### LiveKitEgressConfig
+
+Configuration for streaming to a LiveKit room.
+
+#### Fields
+
+- `url: str` - LiveKit server URL (e.g., `wss://livekit.example.com`)
+- `api_key: str` - LiveKit API key
+- `api_secret: str` - LiveKit API secret
+- `room_name: str` - LiveKit room name to join
+- `publisher_id: str` - Publisher identity in the room
 
 ### SessionConfigBuilder
 
@@ -202,13 +260,16 @@ All methods return `self` for chaining:
 - `with_avatar_id(avatar_id: str)`
 - `with_api_key(api_key: str)`
 - `with_app_id(app_id: str)`
+- `with_use_query_auth(use_query_auth: bool)`
 - `with_expire_at(expire_at: datetime)`
 - `with_sample_rate(sample_rate: int)`
+- `with_bitrate(bitrate: int)`
 - `with_transport_frames(handler: Callable)`
 - `with_on_error(handler: Callable)`
 - `with_on_close(handler: Callable)`
 - `with_console_endpoint_url(url: str)`
 - `with_ingress_endpoint_url(url: str)`
+- `with_livekit_egress(config: LiveKitEgressConfig)`
 - `build() -> SessionConfig` - Build the configuration
 
 ### Utility Functions
@@ -248,6 +309,7 @@ The generated Python code is placed in `src/avatarkit/proto/generated/`.
 - `MESSAGE_CLIENT_AUDIO_INPUT` (3) - Client audio input
 - `MESSAGE_SERVER_ERROR` (4) - Server-side error message
 - `MESSAGE_SERVER_RESPONSE_ANIMATION` (5) - Server animation response (`end` indicates final)
+- `MESSAGE_CLIENT_INTERRUPT` (7) - Client interrupt signal to stop processing
 
 ## Development
 

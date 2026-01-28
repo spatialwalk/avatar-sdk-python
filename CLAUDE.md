@@ -50,9 +50,8 @@ This is a Python SDK for WebSocket-based avatar services with audio streaming an
 2. `session.init()` - HTTP POST to console API for session token
 3. `session.start()` - WebSocket connection + v2 handshake, returns connection_id
 4. `session.send_audio()` - Send PCM audio via protobuf
-5. Optional: `session.interrupt()` - Stop current audio processing
-6. Background read loop delivers animation frames via `transport_frames` callback
-7. `session.close()` - Cleanup
+5. Background read loop delivers animation frames via `transport_frames` callback
+6. `session.close()` - Cleanup
 
 ### Audio Format
 
@@ -89,9 +88,9 @@ session = new_avatar_session(
 )
 ```
 
-### Interrupt Functionality
+### Interrupt Functionality (LiveKit Egress Only)
 
-The `interrupt()` method sends an interrupt signal to stop current audio processing. It returns the request ID that was interrupted.
+The `interrupt()` method sends an interrupt signal to stop current audio processing. This is only available when using LiveKit egress mode.
 
 ```python
 # Send some audio
