@@ -1,6 +1,6 @@
 [project]
 name = "avatarkit"
-version = "0.1.2"
+version = "0.1.3"
 description = "Python SDK for avatar WebSocket services with audio streaming and animation frame reception"
 readme = "README.md"
 authors = [

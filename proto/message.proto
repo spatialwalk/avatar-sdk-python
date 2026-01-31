@@ -26,6 +26,7 @@ enum TransportCompression {
 enum EgressType {
   EGRESS_TYPE_UNSPECIFIED = 0; // Default: return animation data via WebSocket
   EGRESS_TYPE_LIVEKIT = 1;     // Stream to LiveKit room via egress service
+  EGRESS_TYPE_AGORA = 2;       // Stream to Agora channel via egress service
 }
 
 // LiveKitEgressConfig contains configuration for streaming to a LiveKit room
@@ -42,6 +43,18 @@ message LiveKitEgressConfig {
   string publisher_id = 5;
 }
 
+// AgoraEgressConfig contains configuration for streaming to an Agora channel
+message AgoraEgressConfig {
+  // Agora channel name to join
+  string channel_name = 1;
+  // Agora token for authentication (optional for testing)
+  string token = 2;
+  // Publisher UID in the channel (0 for auto-assign)
+  uint32 uid = 3;
+  // Publisher identity/name
+  string publisher_id = 4;
+}
+
 message ClientConfigureSession {
   int32 sample_rate = 1;
   int32 bitrate = 2;
@@ -52,6 +65,8 @@ message ClientConfigureSession {
   EgressType egress_type = 5;
   // LiveKit egress configuration (required when egress_type is EGRESS_TYPE_LIVEKIT)
   LiveKitEgressConfig livekit_egress = 6;
+  // Agora egress configuration (required when egress_type is EGRESS_TYPE_AGORA)
+  AgoraEgressConfig agora_egress = 7;
 }
 
 message ServerConfirmSession {
