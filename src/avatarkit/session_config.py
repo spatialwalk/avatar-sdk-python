@@ -22,8 +22,8 @@ class LiveKitEgressConfig:
     """
 
     url: str = ""
-    api_key: str = ""
-    api_secret: str = ""
+    api_key: str = field(default="", repr=False)
+    api_secret: str = field(default="", repr=False)
     room_name: str = ""
     publisher_id: str = ""
 
@@ -44,7 +44,7 @@ class AgoraEgressConfig:
     """
 
     channel_name: str = ""
-    token: str = ""
+    token: str = field(default="", repr=False)
     uid: int = 0
     publisher_id: str = ""
 
@@ -76,7 +76,7 @@ class SessionConfig:
     """
 
     avatar_id: str = ""
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     app_id: str = ""
     use_query_auth: bool = False
     expire_at: Optional[datetime] = None
