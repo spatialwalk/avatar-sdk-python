@@ -256,6 +256,22 @@ class AvatarSession:
                 self._config.livekit_egress.publisher_id
             )
 
+        # Add Agora egress configuration if provided
+        if self._config.agora_egress is not None:
+            msg.client_configure_session.egress_type = message_pb2.EGRESS_TYPE_AGORA
+            msg.client_configure_session.agora_egress.channel_name = (
+                self._config.agora_egress.channel_name
+            )
+            msg.client_configure_session.agora_egress.token = (
+                self._config.agora_egress.token
+            )
+            msg.client_configure_session.agora_egress.uid = (
+                self._config.agora_egress.uid
+            )
+            msg.client_configure_session.agora_egress.publisher_id = (
+                self._config.agora_egress.publisher_id
+            )
+
         await self._connection.send(msg.SerializeToString())
 
     async def _await_server_confirm_session(self) -> str:
@@ -556,6 +572,8 @@ def new_avatar_session(**kwargs) -> AvatarSession:
         builder.with_ingress_endpoint_url(kwargs["ingress_endpoint_url"])
     if "livekit_egress" in kwargs:
         builder.with_livekit_egress(kwargs["livekit_egress"])
+    if "agora_egress" in kwargs:
+        builder.with_agora_egress(kwargs["agora_egress"])
 
     config = builder.build()
     return AvatarSession(config)

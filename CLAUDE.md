@@ -36,7 +36,7 @@ This is a Python SDK for WebSocket-based avatar services with audio streaming an
 
 - **`avatar_session.py`** - Main `AvatarSession` class managing WebSocket connections, audio streaming, and frame reception. Uses v2 protocol with HTTP-based session token acquisition followed by WebSocket handshake. Exports `SessionTokenError` for token acquisition failures.
 
-- **`session_config.py`** - `SessionConfig` dataclass, `LiveKitEgressConfig` dataclass, and `SessionConfigBuilder` (fluent builder pattern) for session configuration.
+- **`session_config.py`** - `SessionConfig` dataclass, `LiveKitEgressConfig` dataclass, `AgoraEgressConfig` dataclass, and `SessionConfigBuilder` (fluent builder pattern) for session configuration.
 
 - **`errors.py`** - `AvatarSDKError` exception with stable error codes (`AvatarSDKErrorCode` enum). Error codes: `sessionTokenExpired`, `sessionTokenInvalid`, `appIDUnrecognized`, `unknown`.
 
@@ -88,7 +88,31 @@ session = new_avatar_session(
 )
 ```
 
-### Interrupt Functionality (LiveKit Egress Only)
+### Agora Egress Mode
+
+When configured with `agora_egress`, audio and animation data are streamed to an Agora channel via the egress service instead of being returned through the WebSocket connection. The egress configuration is sent via the `ClientConfigureSession` proto message.
+
+To use Agora egress mode:
+1. Configure the session with `agora_egress=AgoraEgressConfig(...)`
+2. Provide Agora connection details: channel_name, token (optional for testing), uid (0 for auto-assign), and publisher_id
+3. The server will create an egress connection and stream output to the Agora channel
+4. The `transport_frames` callback will not be invoked since data goes to Agora
+
+```python
+from avatarkit import new_avatar_session, AgoraEgressConfig
+
+session = new_avatar_session(
+    agora_egress=AgoraEgressConfig(
+        channel_name="channel-name",
+        token="your-agora-token",  # optional for testing
+        uid=0,  # 0 for auto-assign
+        publisher_id="publisher-id",
+    ),
+    # ... other options
+)
+```
+
+### Interrupt Functionality (Egress Mode Only)
 
 The `interrupt()` method sends an interrupt signal to stop current audio processing. This is only available when using LiveKit egress mode.
 

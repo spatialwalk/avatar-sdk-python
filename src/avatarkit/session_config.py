@@ -29,6 +29,27 @@ class LiveKitEgressConfig:
 
 
 @dataclass
+class AgoraEgressConfig:
+    """
+    Configuration for streaming to an Agora channel.
+
+    When set on a SessionConfig, audio and animation data are streamed to an Agora channel
+    via the egress service instead of being returned through the WebSocket connection.
+
+    Attributes:
+        channel_name: Agora channel name to join.
+        token: Agora token for authentication (optional for testing).
+        uid: Publisher UID in the channel (0 for auto-assign).
+        publisher_id: Publisher identity/name.
+    """
+
+    channel_name: str = ""
+    token: str = ""
+    uid: int = 0
+    publisher_id: str = ""
+
+
+@dataclass
 class SessionConfig:
     """
     Configuration for an AvatarSession.
@@ -50,6 +71,8 @@ class SessionConfig:
         ingress_endpoint_url: URL for the ingress websocket endpoint.
         livekit_egress: If set, enables LiveKit egress mode - audio and animation are
             streamed to a LiveKit room via the egress service.
+        agora_egress: If set, enables Agora egress mode - audio and animation are
+            streamed to an Agora channel via the egress service.
     """
 
     avatar_id: str = ""
@@ -67,6 +90,7 @@ class SessionConfig:
     console_endpoint_url: str = ""
     ingress_endpoint_url: str = ""
     livekit_egress: Optional[LiveKitEgressConfig] = None
+    agora_egress: Optional[AgoraEgressConfig] = None
 
 
 class SessionConfigBuilder:
@@ -152,6 +176,16 @@ class SessionConfigBuilder:
         service instead of being returned through the WebSocket connection.
         """
         self._config.livekit_egress = config
+        return self
+
+    def with_agora_egress(self, config: AgoraEgressConfig) -> "SessionConfigBuilder":
+        """
+        Enable Agora egress mode for the session.
+
+        When set, audio and animation data are streamed to an Agora channel via the egress
+        service instead of being returned through the WebSocket connection.
+        """
+        self._config.agora_egress = config
         return self
 
     def build(self) -> SessionConfig:
