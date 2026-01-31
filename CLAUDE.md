@@ -114,7 +114,7 @@ session = new_avatar_session(
 
 ### Interrupt Functionality (Egress Mode Only)
 
-The `interrupt()` method sends an interrupt signal to stop current audio processing. This is only available when using LiveKit egress mode.
+The `interrupt()` method sends an interrupt signal to stop current audio processing. This is available when using egress mode (LiveKit or Agora).
 
 ```python
 # Send some audio

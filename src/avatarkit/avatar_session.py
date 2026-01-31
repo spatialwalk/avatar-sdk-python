@@ -228,6 +228,15 @@ class AvatarSession:
         if self._connection is None:
             raise ValueError("WebSocket connection is not established")
 
+        # Validate that only one egress mode is configured
+        if (
+            self._config.livekit_egress is not None
+            and self._config.agora_egress is not None
+        ):
+            raise ValueError(
+                "Cannot configure both livekit_egress and agora_egress at the same time"
+            )
+
         msg = message_pb2.Message()
         msg.type = message_pb2.MESSAGE_CLIENT_CONFIGURE_SESSION
         msg.client_configure_session.sample_rate = int(self._config.sample_rate)
