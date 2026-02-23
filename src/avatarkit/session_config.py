@@ -19,6 +19,9 @@ class LiveKitEgressConfig:
         api_secret: LiveKit API secret.
         room_name: LiveKit room name to join.
         publisher_id: Publisher identity in the room.
+        extra_attributes: Additional key-value attributes for the LiveKit participant.
+        idle_timeout: Idle timeout in seconds for egress connection auto-close. 0 means
+            use server defaults.
     """
 
     url: str = ""
@@ -26,6 +29,8 @@ class LiveKitEgressConfig:
     api_secret: str = field(default="", repr=False)
     room_name: str = ""
     publisher_id: str = ""
+    extra_attributes: dict[str, str] = field(default_factory=dict)
+    idle_timeout: int = 0
 
 
 @dataclass

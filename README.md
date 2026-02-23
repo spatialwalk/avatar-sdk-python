@@ -248,6 +248,8 @@ Configuration for streaming to a LiveKit room.
 - `api_secret: str` - LiveKit API secret
 - `room_name: str` - LiveKit room name to join
 - `publisher_id: str` - Publisher identity in the room
+- `extra_attributes: dict[str, str]` - Extra LiveKit participant attributes
+- `idle_timeout: int` - Idle timeout in seconds (0 uses server defaults)
 
 ### SessionConfigBuilder
 

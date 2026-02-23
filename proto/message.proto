@@ -41,6 +41,10 @@ message LiveKitEgressConfig {
   string room_name = 4;
   // Publisher identity in the room
   string publisher_id = 5;
+  // Extra participant attributes passed to LiveKit
+  map<string, string> extra_attributes = 6;
+  // Idle timeout in seconds. Server closes the connection when it is completely silent.
+  int32 idle_timeout = 7;
 }
 
 // AgoraEgressConfig contains configuration for streaming to an Agora channel
