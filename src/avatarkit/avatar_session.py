@@ -264,6 +264,13 @@ class AvatarSession:
             msg.client_configure_session.livekit_egress.publisher_id = (
                 self._config.livekit_egress.publisher_id
             )
+            if self._config.livekit_egress.extra_attributes:
+                msg.client_configure_session.livekit_egress.extra_attributes.update(
+                    self._config.livekit_egress.extra_attributes
+                )
+            msg.client_configure_session.livekit_egress.idle_timeout = int(
+                self._config.livekit_egress.idle_timeout
+            )
 
         # Add Agora egress configuration if provided
         if self._config.agora_egress is not None:

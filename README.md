@@ -15,7 +15,7 @@ async def main():
         api_key="your-api-key",
         app_id="your-app-id",
         console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
-        ingress_endpoint_url="https://api.us-west.spatialwalk.cloud/v2/driveningress",
+        ingress_endpoint_url="wss://api.us-west.spatialwalk.cloud/v2/driveningress",
         avatar_id="your-avatar-id",
         expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         transport_frames=lambda frame, last: print(f"Received frame: {len(frame)} bytes"),
@@ -63,7 +63,7 @@ session = new_avatar_session(
     use_query_auth=False,
     expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
-    ingress_endpoint_url="https://api.us-west.spatialwalk.cloud/v2/driveningress",
+    ingress_endpoint_url="wss://api.us-west.spatialwalk.cloud/v2/driveningress",
     sample_rate=16000,  # Default: 16000 Hz
     transport_frames=on_frame_received,
     on_error=on_error,
@@ -81,7 +81,7 @@ config = (SessionConfigBuilder()
     .with_api_key("your-api-key")
     .with_app_id("your-app-id")
     .with_console_endpoint_url("https://console.us-west.spatialwalk.cloud/v1/console")
-    .with_ingress_endpoint_url("https://api.us-west.spatialwalk.cloud/v2/driveningress")
+    .with_ingress_endpoint_url("wss://api.us-west.spatialwalk.cloud/v2/driveningress")
     .with_expire_at(datetime.now(timezone.utc) + timedelta(minutes=5))
     .with_transport_frames(on_frame_received)
     .build())
@@ -137,8 +137,8 @@ session = new_avatar_session(
     avatar_id="avatar-123",
     api_key="your-api-key",
     app_id="your-app-id",
-    console_endpoint_url="https://console.example.com/v1/console",
-    ingress_endpoint_url="https://api.example.com/v2/driveningress",
+    console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
+    ingress_endpoint_url="wss://api.us-west.spatialwalk.cloud/v2/driveningress",
     expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     livekit_egress=LiveKitEgressConfig(
         url="wss://livekit.example.com",
@@ -248,6 +248,8 @@ Configuration for streaming to a LiveKit room.
 - `api_secret: str` - LiveKit API secret
 - `room_name: str` - LiveKit room name to join
 - `publisher_id: str` - Publisher identity in the room
+- `extra_attributes: dict[str, str]` - Extra LiveKit participant attributes
+- `idle_timeout: int` - Idle timeout in seconds (0 uses server defaults)
 
 ### SessionConfigBuilder
 

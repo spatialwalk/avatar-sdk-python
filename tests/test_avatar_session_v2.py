@@ -3,7 +3,7 @@ import unittest
 from typing import Optional
 from unittest.mock import patch
 
-from avatarkit import new_avatar_session
+from avatarkit import LiveKitEgressConfig, new_avatar_session
 from avatarkit.proto.generated import message_pb2
 
 
@@ -144,6 +144,59 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         self.assertIn("appId=app-1", captured["url"])
         self.assertIn("sessionKey=tok-1", captured["url"])
         self.assertEqual(captured["headers"], {})
+
+        await session.close()
+
+    async def test_start_with_livekit_egress_sends_new_fields(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            livekit_egress=LiveKitEgressConfig(
+                url="wss://livekit.example.com",
+                api_key="lk-api-key",
+                api_secret="lk-api-secret",
+                room_name="lk-room",
+                publisher_id="publisher-1",
+                extra_attributes={"role": "avatar", "region": "us-west"},
+                idle_timeout=120,
+            ),
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        fake_ws: _FakeWebSocket = session._connection  # type: ignore[assignment]
+        self.assertIsNotNone(fake_ws)
+        self.assertGreaterEqual(len(fake_ws.sent), 1)
+
+        first = message_pb2.Message()
+        first.ParseFromString(fake_ws.sent[0])
+
+        self.assertEqual(first.type, message_pb2.MESSAGE_CLIENT_CONFIGURE_SESSION)
+        self.assertEqual(
+            first.client_configure_session.egress_type, message_pb2.EGRESS_TYPE_LIVEKIT
+        )
+        self.assertEqual(
+            first.client_configure_session.livekit_egress.extra_attributes,
+            {"role": "avatar", "region": "us-west"},
+        )
+        self.assertEqual(
+            first.client_configure_session.livekit_egress.idle_timeout, 120
+        )
 
         await session.close()
 
