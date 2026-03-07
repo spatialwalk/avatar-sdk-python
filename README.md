@@ -189,9 +189,74 @@ def on_frame_received(frame_data: bytes, is_last: bool):
 Handles errors from the session:
 
 ```python
+from avatarkit import AvatarSDKError
+
+
 def on_error(error: Exception):
     print(f"Session error: {error}")
+
+    if isinstance(error, AvatarSDKError):
+        print("  code:", error.code.value)
+        print("  phase:", error.phase)
+        print("  http_status:", error.http_status)
+        print("  server_code:", error.server_code)
+        print("  server_detail:", error.server_detail)
 ```
+
+The SDK reports structured `AvatarSDKError` instances for token creation failures,
+WebSocket upgrade rejections, handshake failures, runtime `ServerError` messages,
+and unexpected connection drops.
+
+### Error Handling
+
+Use `SessionTokenError` for token creation failures and `AvatarSDKError` for all
+other structured SDK errors:
+
+```python
+from avatarkit import AvatarSDKError, SessionTokenError
+
+try:
+    await session.init()
+    await session.start()
+except SessionTokenError as error:
+    print("token failed", error.code.value, error.server_detail)
+except AvatarSDKError as error:
+    print("sdk error", error.code.value, error.phase, error.server_detail)
+```
+
+`AvatarSDKError` and `SessionTokenError` expose these fields:
+
+- `code` - Stable SDK error code
+- `message` - Human-readable message
+- `phase` - Failure phase such as `session_token`, `websocket_connect`, `websocket_handshake`, `websocket_runtime`, or `websocket_send`
+- `http_status` - HTTP status for token or WebSocket upgrade rejections
+- `server_code` - Server-provided error code, including runtime protobuf `ServerError.code`
+- `server_title` / `server_detail` - Parsed server error details when available
+- `connection_id` / `req_id` - Server correlation identifiers when available
+- `raw_body` - Raw HTTP rejection body for token or WebSocket upgrade failures
+- `close_code` / `close_reason` - WebSocket close details for unexpected disconnects
+
+Common `AvatarSDKErrorCode` values:
+
+- `sessionTokenExpired` - Session token expired or unauthorized
+- `sessionTokenInvalid` - Invalid or empty session token
+- `appIDUnrecognized` - App ID is not recognized by the server
+- `appIDMismatch` - Session token belongs to a different app
+- `avatarNotFound` - Avatar does not exist
+- `billingRequired` - Session denied by billing checks
+- `creditsExhausted` - Runtime or connect-time credits exhausted
+- `sessionDurationExceeded` - Billing-enforced session timeout reached
+- `unsupportedSampleRate` - Handshake rejected unsupported audio sample rate
+- `invalidEgressConfig` - LiveKit or Agora egress config is invalid
+- `egressUnavailable` - Egress service is unavailable or not configured
+- `idleTimeout` - Server closed the session after input inactivity
+- `upstreamError` - Internal upstream service failed
+- `protocolError` - Invalid protobuf or unexpected message sequence
+- `connectionFailed` - Transport-level connection failure
+- `connectionClosed` - Unexpected WebSocket close
+- `serverError` - Server-side failure that did not match a more specific mapping
+- `invalidRequest` - Other client-side request validation errors
+- `unknown` - Fallback when the SDK cannot classify the failure
 
 #### Close Callback
 
@@ -280,7 +345,8 @@ All methods return `self` for chaining:
 
 ### Exceptions
 
-- `SessionTokenError` - Raised when session token request fails
+- `AvatarSDKError` - Structured SDK error with stable code and context fields
+- `SessionTokenError` - Subclass of `AvatarSDKError` raised when session token request fails
 
 ## Examples
 
@@ -326,6 +392,52 @@ git clone <repository-url>
 cd avatar-sdk-python
 uv sync
 ```
+
+### Running Tests
+
+```bash
+# Unit tests
+uv run pytest
+```
+
+### End-to-End Tests
+
+The repository includes opt-in network tests in `tests/test_e2e_errors.py`.
+They are skipped by default and only run when `AVATARKIT_RUN_E2E=1` is set.
+
+```bash
+AVATARKIT_RUN_E2E=1 uv run pytest tests/test_e2e_errors.py
+```
+
+Available e2e cases:
+
+- invalid WebSocket credentials -> expects `sessionTokenInvalid`
+- valid credentials + missing avatar -> expects `avatarNotFound`
+
+Environment variables:
+
+- `AVATARKIT_RUN_E2E=1` - Enables e2e tests
+- `AVATARKIT_E2E_API_KEY` - Required for the real `avatarNotFound` test
+- `AVATARKIT_E2E_APP_ID` - Required for the real `avatarNotFound` test
+- `AVATARKIT_E2E_CONSOLE_ENDPOINT` - Required for the real `avatarNotFound` test
+- `AVATARKIT_E2E_INGRESS_ENDPOINT` - Required for the real `avatarNotFound` test unless you use the default public ingress endpoint for the invalid-token test only
+- `AVATARKIT_E2E_MISSING_AVATAR_ID` - Optional avatar id that should not exist; defaults to `avatarkit-e2e-missing-avatar-404`
+
+Example:
+
+```bash
+export AVATARKIT_RUN_E2E=1
+export AVATARKIT_E2E_API_KEY="your-api-key"
+export AVATARKIT_E2E_APP_ID="your-app-id"
+export AVATARKIT_E2E_CONSOLE_ENDPOINT="https://console.us-west.spatialwalk.cloud/v1/console"
+export AVATARKIT_E2E_INGRESS_ENDPOINT="wss://api.us-west.spatialwalk.cloud/v2/driveningress"
+export AVATARKIT_E2E_MISSING_AVATAR_ID="avatarkit-e2e-missing-avatar-404"
+
+uv run pytest tests/test_e2e_errors.py
+```
+
+If the credentialed variables are missing, the invalid-token e2e test still runs, and the
+real `avatarNotFound` test is skipped automatically.
 
 ## License
 

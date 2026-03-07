@@ -5,8 +5,8 @@ This package provides a Python SDK for connecting to avatar services via WebSock
 supporting audio streaming and receiving animation frames.
 """
 
-from .avatar_session import AvatarSession, SessionTokenError, new_avatar_session
-from .errors import AvatarSDKError, AvatarSDKErrorCode
+from .avatar_session import AvatarSession, new_avatar_session
+from .errors import AvatarSDKError, AvatarSDKErrorCode, SessionTokenError
 from .session_config import (
     SessionConfig,
     SessionConfigBuilder,
@@ -15,7 +15,7 @@ from .session_config import (
 )
 from .logid import generate_log_id
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"
 
 __all__ = [
     "AvatarSession",

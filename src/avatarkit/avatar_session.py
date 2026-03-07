@@ -3,26 +3,19 @@
 import asyncio
 import inspect
 import json
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import aiohttp
 import websockets
-from websockets.client import WebSocketClientProtocol
 
-from .errors import AvatarSDKError, AvatarSDKErrorCode
+from .errors import AvatarSDKError, AvatarSDKErrorCode, SessionTokenError
 from .logid import generate_log_id
 from .proto.generated import message_pb2
 from .session_config import SessionConfig, SessionConfigBuilder
 
 SESSION_TOKEN_PATH = "/session-tokens"
 INGRESS_WEBSOCKET_PATH = "/websocket"
-
-
-class SessionTokenError(Exception):
-    """Raised when session token request fails."""
-
-    pass
 
 
 class AvatarSession:
@@ -45,7 +38,7 @@ class AvatarSession:
         """
         self._config = config
         self._session_token: Optional[str] = None
-        self._connection: Optional[WebSocketClientProtocol] = None
+        self._connection: Optional[Any] = None
         self._current_req_id: Optional[str] = None
         self._last_req_id: Optional[str] = (
             None  # tracks most recent request for interrupt
@@ -83,38 +76,58 @@ class AvatarSession:
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                endpoint, json=payload, headers=headers
-            ) as response:
-                response_text = await response.text()
+            try:
+                async with session.post(
+                    endpoint, json=payload, headers=headers
+                ) as response:
+                    response_text = await response.text()
+            except aiohttp.ClientError as e:
+                raise SessionTokenError(
+                    f"Failed to create session token: {e}",
+                    code=AvatarSDKErrorCode.connectionFailed,
+                ) from e
+            except asyncio.TimeoutError as e:
+                raise SessionTokenError(
+                    "Timed out while creating session token",
+                    code=AvatarSDKErrorCode.connectionFailed,
+                ) from e
 
-                if response.status != 200:
-                    try:
-                        error_data = json.loads(response_text)
-                        error_msg = self._format_session_token_error(
-                            response.status, error_data
-                        )
-                    except json.JSONDecodeError:
-                        error_msg = f"Request failed with status {response.status}"
-                    raise SessionTokenError(error_msg)
+            response_data = self._try_parse_json(response_text)
 
-                try:
-                    response_data = json.loads(response_text)
-                except json.JSONDecodeError as e:
-                    raise SessionTokenError(f"Failed to decode response: {e}")
+            if response.status != 200:
+                raise self._build_session_token_error(
+                    response.status,
+                    payload=response_data,
+                    raw_body=response_text,
+                )
 
-                errors = response_data.get("errors", [])
-                if errors:
-                    error_msg = self._format_session_token_error(
-                        response.status, response_data
-                    )
-                    raise SessionTokenError(error_msg)
+            if not isinstance(response_data, dict):
+                raise SessionTokenError(
+                    "Failed to decode session token response",
+                    code=AvatarSDKErrorCode.protocolError,
+                    raw_body=response_text,
+                )
 
-                session_token = response_data.get("sessionToken")
-                if not session_token:
-                    raise SessionTokenError("Empty session token in response")
+            errors = response_data.get("errors", [])
+            if errors:
+                error_status = self._coerce_int(
+                    self._extract_error_details(response_data).get("status")
+                )
+                raise self._build_session_token_error(
+                    error_status if error_status is not None else response.status,
+                    payload=response_data,
+                    raw_body=response_text,
+                )
 
-                self._session_token = session_token
+            session_token = response_data.get("sessionToken")
+            if not session_token:
+                raise SessionTokenError(
+                    "Empty session token in response",
+                    code=AvatarSDKErrorCode.protocolError,
+                    raw_body=response_text,
+                )
+
+            self._session_token = session_token
 
     async def start(self) -> str:
         """
@@ -125,7 +138,7 @@ class AvatarSession:
 
         Raises:
             ValueError: If configuration is invalid or session not initialized.
-            ConnectionError: If WebSocket connection fails.
+            AvatarSDKError: If WebSocket connection, handshake, or runtime setup fails.
         """
         if self._connection is not None:
             raise ValueError("Session already started")
@@ -204,19 +217,23 @@ class AvatarSession:
                 # Fallback: some variants accept `headers=...`
                 self._connection = await websockets.connect(ws_url, headers=headers)  # type: ignore[call-arg]
         except Exception as e:
-            code = self._map_ws_connect_error_to_code(e)
-            if code is not None:
-                raise AvatarSDKError(
-                    code=code,
-                    message=f"WebSocket auth failed (HTTP {getattr(e, 'status_code', getattr(e, 'status', 'unknown'))})",
-                ) from e
-            raise ConnectionError(f"Failed to connect to websocket: {e}") from e
+            raise self._build_websocket_connect_error(e) from e
 
         # v2 handshake:
         # 1) client sends ClientConfigureSession
         # 2) server responds with ServerConfirmSession (connection_id) OR ServerError
-        await self._send_client_configure_session()
-        server_connection_id = await self._await_server_confirm_session()
+        try:
+            await self._send_client_configure_session()
+            server_connection_id = await self._await_server_confirm_session()
+        except Exception:
+            if self._connection is not None:
+                try:
+                    await self._connection.close()
+                except Exception:
+                    pass
+                finally:
+                    self._connection = None
+            raise
         self._connection_id = server_connection_id
 
         # Start read loop in background
@@ -288,7 +305,14 @@ class AvatarSession:
                 self._config.agora_egress.publisher_id
             )
 
-        await self._connection.send(msg.SerializeToString())
+        try:
+            await self._connection.send(msg.SerializeToString())
+        except Exception as e:
+            raise self._build_transport_error(
+                e,
+                phase="websocket_handshake",
+                action="send session configuration",
+            ) from e
 
     async def _await_server_confirm_session(self) -> str:
         if self._connection is None:
@@ -297,37 +321,65 @@ class AvatarSession:
         try:
             raw = await self._connection.recv()
         except Exception as e:
-            raise ConnectionError(f"Failed during websocket handshake: {e}") from e
+            raise self._build_transport_error(
+                e,
+                phase="websocket_handshake",
+                action="receive handshake response",
+            ) from e
 
         if not isinstance(raw, (bytes, bytearray)):
-            raise ConnectionError(
-                "Failed during websocket handshake: expected binary protobuf message"
+            raise AvatarSDKError(
+                code=AvatarSDKErrorCode.protocolError,
+                message="Failed during websocket handshake: expected binary protobuf message",
+                phase="websocket_handshake",
             )
 
         envelope = message_pb2.Message()
         try:
             envelope.ParseFromString(bytes(raw))
         except Exception as e:
-            raise ConnectionError(
-                f"Failed during websocket handshake: invalid protobuf payload ({e})"
+            raise AvatarSDKError(
+                code=AvatarSDKErrorCode.protocolError,
+                message=f"Failed during websocket handshake: invalid protobuf payload ({e})",
+                phase="websocket_handshake",
             ) from e
 
         if envelope.type == message_pb2.MESSAGE_SERVER_CONFIRM_SESSION:
             cid = envelope.server_confirm_session.connection_id
             if not cid:
-                raise ConnectionError(
-                    "Handshake succeeded but server_confirm_session.connection_id is empty"
+                raise AvatarSDKError(
+                    code=AvatarSDKErrorCode.protocolError,
+                    message="Handshake succeeded but server_confirm_session.connection_id is empty",
+                    phase="websocket_handshake",
                 )
             return cid
 
         if envelope.type == message_pb2.MESSAGE_SERVER_ERROR:
             err = envelope.server_error
-            raise ConnectionError(
-                f"ServerError during handshake (connection_id={err.connection_id}, req_id={err.req_id}, code={err.code}): {err.message}"
+            server_code = str(err.code)
+            server_detail = err.message or None
+            raise AvatarSDKError(
+                code=self._classify_error_code(
+                    phase="websocket_handshake",
+                    server_code=server_code,
+                    detail=server_detail,
+                ),
+                message=self._format_server_error_message(
+                    "WebSocket handshake rejected by server",
+                    code=server_code,
+                    detail=err.message,
+                ),
+                phase="websocket_handshake",
+                connection_id=err.connection_id or None,
+                req_id=err.req_id or None,
+                server_code=server_code,
+                server_detail=server_detail,
             )
 
-        raise ConnectionError(
-            f"Unexpected message during handshake: type={envelope.type}"
+        raise AvatarSDKError(
+            code=AvatarSDKErrorCode.protocolError,
+            message=f"Unexpected message during handshake: type={envelope.type}",
+            phase="websocket_handshake",
         )
 
     async def send_audio(self, audio: bytes, end: bool = False) -> str:
@@ -365,7 +417,15 @@ class AvatarSession:
 
         # Serialize and send
         data = msg.SerializeToString()
-        await self._connection.send(data)
+        try:
+            await self._connection.send(data)
+        except Exception as e:
+            raise self._build_transport_error(
+                e,
+                phase="websocket_send",
+                action="send audio",
+                req_id=req_id,
+            ) from e
 
         if end:
             self._current_req_id = None
@@ -397,7 +457,15 @@ class AvatarSession:
 
         # Serialize and send
         data = msg.SerializeToString()
-        await self._connection.send(data)
+        try:
+            await self._connection.send(data)
+        except Exception as e:
+            raise self._build_transport_error(
+                e,
+                phase="websocket_send",
+                action="send interrupt",
+                req_id=req_id,
+            ) from e
 
         # Clear current request ID so next send_audio creates a new one
         self._current_req_id = None
@@ -437,23 +505,31 @@ class AvatarSession:
 
     async def _read_loop(self) -> None:
         """Background task that reads messages from the WebSocket."""
+        connection = self._connection
+        if connection is None:
+            return
+
         try:
-            async for message in self._connection:
+            async for message in connection:
                 if isinstance(message, bytes):
                     await self._handle_binary_message(message)
-        except websockets.exceptions.ConnectionClosed:
-            # Normal closure
+        except websockets.exceptions.ConnectionClosedOK:
+            # Normal closure.
             pass
+        except websockets.exceptions.ConnectionClosed as e:
+            self._notify_error(self._build_connection_closed_error(e))
         except asyncio.CancelledError:
             # Task was cancelled
             raise
         except Exception as e:
-            # Report error through callback
-            if self._config.on_error:
-                try:
-                    self._config.on_error(Exception(f"Read loop error: {e}"))
-                except Exception:
-                    pass
+            self._notify_error(
+                self._coerce_avatar_error(
+                    e,
+                    code=AvatarSDKErrorCode.connectionFailed,
+                    phase="websocket_runtime",
+                    message=f"Read loop error: {e}",
+                )
+            )
         finally:
             # Ensure connection is closed
             await self.close()
@@ -464,11 +540,13 @@ class AvatarSession:
             envelope = message_pb2.Message()
             envelope.ParseFromString(payload)
         except Exception as e:
-            if self._config.on_error:
-                try:
-                    self._config.on_error(Exception(f"Failed to decode message: {e}"))
-                except Exception:
-                    pass
+            self._notify_error(
+                AvatarSDKError(
+                    code=AvatarSDKErrorCode.protocolError,
+                    message=f"Failed to decode message: {e}",
+                    phase="websocket_runtime",
+                )
+            )
             return
 
         if envelope.type == message_pb2.MESSAGE_SERVER_RESPONSE_ANIMATION:
@@ -483,60 +561,407 @@ class AvatarSession:
                     pass
 
         elif envelope.type == message_pb2.MESSAGE_SERVER_ERROR:
-            if self._config.on_error:
-                err = envelope.server_error
-                error_msg = (
-                    f"Avatar session error (connection_id={err.connection_id}, req_id={err.req_id}, "
-                    f"code={err.code}): {err.message}"
+            err = envelope.server_error
+            server_code = str(err.code)
+            server_detail = err.message or None
+            self._notify_error(
+                AvatarSDKError(
+                    code=self._classify_error_code(
+                        phase="websocket_runtime",
+                        server_code=server_code,
+                        detail=server_detail,
+                    ),
+                    message=self._format_server_error_message(
+                        "Avatar session error",
+                        code=server_code,
+                        detail=err.message,
+                    ),
+                    phase="websocket_runtime",
+                    connection_id=err.connection_id or None,
+                    req_id=err.req_id or None,
+                    server_code=server_code,
+                    server_detail=server_detail,
                 )
-                try:
-                    self._config.on_error(Exception(error_msg))
-                except Exception:
-                    pass
+            )
 
     @staticmethod
-    def _map_ws_connect_error_to_code(exc: Exception) -> Optional[AvatarSDKErrorCode]:
-        """
-        Map websocket HTTP upgrade failures to stable SDK error codes.
-
-        v2 spec mapping:
-        - 401 -> sessionTokenExpired
-        - 400 -> sessionTokenInvalid
-        - 404 -> appIDUnrecognized
-        """
-        status = getattr(exc, "status_code", None)
-        if status is None:
-            status = getattr(exc, "status", None)
-        if status is None and hasattr(exc, "response"):
-            status = getattr(getattr(exc, "response"), "status_code", None)
-            if status is None:
-                status = getattr(getattr(exc, "response"), "status", None)
-
+    def _try_parse_json(body: str) -> Optional[Any]:
+        if not body:
+            return None
         try:
-            status_int = int(status) if status is not None else None
-        except Exception:
-            status_int = None
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return None
 
-        if status_int == 401:
-            return AvatarSDKErrorCode.sessionTokenExpired
-        if status_int == 400:
+    @staticmethod
+    def _coerce_int(value: Any) -> Optional[int]:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _stringify(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        return str(value)
+
+    @classmethod
+    def _extract_error_details(cls, payload: Any) -> dict[str, Optional[str]]:
+        if isinstance(payload, str):
+            parsed = cls._try_parse_json(payload)
+            if parsed is None:
+                text = payload.strip()
+                return {"message": text or None}
+            payload = parsed
+
+        if isinstance(payload, dict):
+            errors = payload.get("errors")
+            if isinstance(errors, list) and errors:
+                first_error = errors[0]
+                if isinstance(first_error, dict):
+                    return {
+                        "status": cls._stringify(first_error.get("status")),
+                        "code": cls._stringify(
+                            first_error.get("code") or first_error.get("id")
+                        ),
+                        "title": cls._stringify(first_error.get("title")),
+                        "detail": cls._stringify(first_error.get("detail")),
+                        "message": cls._stringify(first_error.get("message")),
+                    }
+
+            return {
+                "status": cls._stringify(payload.get("status")),
+                "code": cls._stringify(payload.get("code") or payload.get("error")),
+                "title": cls._stringify(payload.get("title")),
+                "detail": cls._stringify(payload.get("detail")),
+                "message": cls._stringify(payload.get("message")),
+            }
+
+        return {}
+
+    @classmethod
+    def _compose_error_message(
+        cls,
+        prefix: str,
+        *,
+        status: Optional[int],
+        details: dict[str, Optional[str]],
+    ) -> str:
+        message = prefix
+        if status is not None:
+            message += f" (HTTP {status})"
+
+        detail_parts = [
+            part
+            for part in (
+                details.get("title"),
+                details.get("detail") or details.get("message"),
+            )
+            if part
+        ]
+
+        if detail_parts:
+            return f"{message}: {' - '.join(detail_parts)}"
+
+        if details.get("code"):
+            return f"{message}: {details['code']}"
+
+        return message
+
+    @classmethod
+    def _format_server_error_message(
+        cls,
+        prefix: str,
+        *,
+        code: Optional[str],
+        detail: Optional[str],
+    ) -> str:
+        if code and detail:
+            return f"{prefix}: {detail} (server code {code})"
+        if detail:
+            return f"{prefix}: {detail}"
+        if code:
+            return f"{prefix}: server code {code}"
+        return prefix
+
+    @staticmethod
+    def _normalize_error_text(*values: Optional[str]) -> str:
+        parts = [value.strip().lower() for value in values if value and value.strip()]
+        return " | ".join(parts)
+
+    @classmethod
+    def _classify_error_code(
+        cls,
+        *,
+        phase: str,
+        http_status: Optional[int] = None,
+        server_code: Optional[str] = None,
+        title: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> AvatarSDKErrorCode:
+        detail_text = cls._normalize_error_text(server_code, title, detail)
+
+        if server_code == "4001":
+            return AvatarSDKErrorCode.creditsExhausted
+        if server_code == "4002":
+            return AvatarSDKErrorCode.sessionDurationExceeded
+
+        if "credits exhausted" in detail_text:
+            return AvatarSDKErrorCode.creditsExhausted
+        if (
+            "session time limit reached" in detail_text
+            or "maximum session duration" in detail_text
+        ):
+            return AvatarSDKErrorCode.sessionDurationExceeded
+        if "session denied" in detail_text or http_status == 402:
+            return AvatarSDKErrorCode.billingRequired
+        if "invalid session token" in detail_text or "empty token" in detail_text:
             return AvatarSDKErrorCode.sessionTokenInvalid
-        if status_int == 404:
+        if "token is expired" in detail_text or "session token expired" in detail_text:
+            return AvatarSDKErrorCode.sessionTokenExpired
+        if "app id mismatch" in detail_text:
+            return AvatarSDKErrorCode.appIDMismatch
+        if "appidunrecognized" in detail_text or "app id unrecognized" in detail_text:
             return AvatarSDKErrorCode.appIDUnrecognized
+        if "avatar not found" in detail_text:
+            return AvatarSDKErrorCode.avatarNotFound
+        if "unsupported sample rate" in detail_text:
+            return AvatarSDKErrorCode.unsupportedSampleRate
+        if (
+            "livekit silence timeout" in detail_text
+            or "no audio input for" in detail_text
+        ):
+            return AvatarSDKErrorCode.idleTimeout
+        if "livekit_egress" in detail_text or "agora_egress" in detail_text:
+            return AvatarSDKErrorCode.invalidEgressConfig
+        if (
+            "egress client is not configured on server" in detail_text
+            or "failed to create egress connection" in detail_text
+        ):
+            return AvatarSDKErrorCode.egressUnavailable
+        if (
+            "driven server returned non-200 status code" in detail_text
+            or "driven server request failed" in detail_text
+        ):
+            return AvatarSDKErrorCode.upstreamError
+        if (
+            "expected clientconfiguresession message" in detail_text
+            or "clientconfiguresession message is nil" in detail_text
+            or "unexpected message type" in detail_text
+            or "failed to unmarshal initial message" in detail_text
+            or "failed during websocket handshake: expected binary protobuf message"
+            in detail_text
+            or "failed during websocket handshake: invalid protobuf payload"
+            in detail_text
+        ):
+            return AvatarSDKErrorCode.protocolError
+
+        mapped = cls._map_http_status_to_error_code(http_status, phase, detail_text)
+        if mapped != AvatarSDKErrorCode.unknown:
+            return mapped
+
+        if phase in ("websocket_handshake", "websocket_runtime"):
+            return AvatarSDKErrorCode.serverError
+
+        return AvatarSDKErrorCode.unknown
+
+    @staticmethod
+    def _map_http_status_to_error_code(
+        status: Optional[int], phase: str, detail_text: str = ""
+    ) -> AvatarSDKErrorCode:
+        if status == 401:
+            return AvatarSDKErrorCode.sessionTokenExpired
+        if status == 404 and "avatar not found" in detail_text:
+            return AvatarSDKErrorCode.avatarNotFound
+        if status == 404:
+            return AvatarSDKErrorCode.appIDUnrecognized
+        if status == 402:
+            return AvatarSDKErrorCode.billingRequired
+        if status == 400 and "app id mismatch" in detail_text:
+            return AvatarSDKErrorCode.appIDMismatch
+        if phase == "websocket_connect" and status == 400:
+            return AvatarSDKErrorCode.sessionTokenInvalid
+        if status is not None and 400 <= status < 500:
+            return AvatarSDKErrorCode.invalidRequest
+        if status is not None and status >= 500:
+            return AvatarSDKErrorCode.serverError
+        return AvatarSDKErrorCode.unknown
+
+    @classmethod
+    def _build_session_token_error(
+        cls,
+        status: int,
+        *,
+        payload: Any,
+        raw_body: str,
+    ) -> SessionTokenError:
+        details = cls._extract_error_details(payload)
+        return SessionTokenError(
+            cls._compose_error_message(
+                "Failed to create session token",
+                status=status,
+                details=details,
+            ),
+            code=cls._classify_error_code(
+                phase="session_token",
+                http_status=status,
+                server_code=details.get("code"),
+                title=details.get("title"),
+                detail=details.get("detail") or details.get("message"),
+            ),
+            http_status=status,
+            server_code=details.get("code"),
+            server_title=details.get("title"),
+            server_detail=details.get("detail") or details.get("message"),
+            raw_body=raw_body,
+        )
+
+    @classmethod
+    def _build_websocket_connect_error(cls, exc: Exception) -> AvatarSDKError:
+        status = cls._coerce_int(cls._extract_http_status(exc))
+        raw_body = cls._extract_http_body(exc)
+        details = cls._extract_error_details(raw_body)
+
+        if status is not None:
+            server_detail = details.get("detail") or details.get("message")
+            return AvatarSDKError(
+                code=cls._classify_error_code(
+                    phase="websocket_connect",
+                    http_status=status,
+                    server_code=details.get("code"),
+                    title=details.get("title"),
+                    detail=server_detail,
+                ),
+                message=cls._compose_error_message(
+                    "WebSocket connection rejected",
+                    status=status,
+                    details=details,
+                ),
+                phase="websocket_connect",
+                http_status=status,
+                server_code=details.get("code"),
+                server_title=details.get("title"),
+                server_detail=server_detail,
+                raw_body=raw_body,
+            )
+
+        return cls._coerce_avatar_error(
+            exc,
+            code=AvatarSDKErrorCode.connectionFailed,
+            phase="websocket_connect",
+            message=f"Failed to connect to websocket: {exc}",
+        )
+
+    @classmethod
+    def _build_transport_error(
+        cls,
+        exc: Exception,
+        *,
+        phase: str,
+        action: str,
+        req_id: Optional[str] = None,
+    ) -> AvatarSDKError:
+        if isinstance(exc, websockets.exceptions.ConnectionClosed):
+            return cls._build_connection_closed_error(exc, phase=phase, req_id=req_id)
+
+        return cls._coerce_avatar_error(
+            exc,
+            code=AvatarSDKErrorCode.connectionFailed,
+            phase=phase,
+            message=f"Failed to {action}: {exc}",
+            req_id=req_id,
+        )
+
+    @staticmethod
+    def _extract_http_status(exc: Exception) -> Optional[int]:
+        for attr in ("status_code", "status"):
+            status = getattr(exc, attr, None)
+            if status is not None:
+                try:
+                    return int(status)
+                except (TypeError, ValueError):
+                    pass
+
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
+
+        for attr in ("status_code", "status"):
+            status = getattr(response, attr, None)
+            if status is not None:
+                try:
+                    return int(status)
+                except (TypeError, ValueError):
+                    pass
         return None
 
     @staticmethod
-    def _format_session_token_error(status: int, response_data: dict) -> str:
-        """Format session token error response into readable message."""
-        errors = response_data.get("errors", [])
-        if not errors:
-            return f"Unknown error with status {status}"
+    def _extract_http_body(exc: Exception) -> Optional[str]:
+        response = getattr(exc, "response", None)
+        if response is None:
+            return None
 
-        err = errors[0]
-        return (
-            f"Error {err.get('status', status)} ({err.get('code', 'unknown')}): "
-            f"{err.get('title', 'Error')} - {err.get('detail', 'No details')}"
+        body = getattr(response, "body", None)
+        if body is None:
+            return None
+        if isinstance(body, (bytes, bytearray)):
+            return bytes(body).decode("utf-8", errors="replace")
+        return str(body)
+
+    @classmethod
+    def _build_connection_closed_error(
+        cls,
+        exc: Exception,
+        *,
+        phase: str = "websocket_runtime",
+        req_id: Optional[str] = None,
+    ) -> AvatarSDKError:
+        close_frame = getattr(exc, "rcvd", None) or getattr(exc, "sent", None)
+        close_code = getattr(close_frame, "code", None)
+        close_reason = getattr(close_frame, "reason", None)
+
+        message = "WebSocket connection closed unexpectedly"
+        if close_code is not None and close_reason:
+            message += f" (code {close_code}: {close_reason})"
+        elif close_code is not None:
+            message += f" (code {close_code})"
+        elif close_reason:
+            message += f" ({close_reason})"
+
+        return AvatarSDKError(
+            code=AvatarSDKErrorCode.connectionClosed,
+            message=message,
+            phase=phase,
+            req_id=req_id,
+            close_code=close_code,
+            close_reason=close_reason,
         )
+
+    @staticmethod
+    def _coerce_avatar_error(
+        exc: Exception,
+        *,
+        code: AvatarSDKErrorCode,
+        phase: str,
+        message: str,
+        req_id: Optional[str] = None,
+    ) -> AvatarSDKError:
+        if isinstance(exc, AvatarSDKError):
+            return exc
+
+        return AvatarSDKError(
+            code=code,
+            message=message,
+            phase=phase,
+            req_id=req_id,
+        )
+
+    def _notify_error(self, error: Exception) -> None:
+        try:
+            self._config.on_error(error)
+        except Exception:
+            pass
 
 
 def new_avatar_session(**kwargs) -> AvatarSession:
