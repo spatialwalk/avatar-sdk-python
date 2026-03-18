@@ -2,7 +2,23 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Optional
+from enum import Enum
+from typing import Callable, Optional, Union
+
+
+class AudioFormat(str, Enum):
+    """Audio input encoding negotiated for a session."""
+
+    PCM_S16LE = "pcm_s16le"
+    OGG_OPUS = "ogg_opus"
+
+
+@dataclass
+class OggOpusEncoderConfig:
+    """Optional client-side Ogg Opus encoder settings."""
+
+    frame_duration_ms: int = 20
+    application: str = "audio"
 
 
 @dataclass
@@ -69,6 +85,14 @@ class SessionConfig:
         sample_rate: Audio sample rate in Hz (default: 16000).
         bitrate: Audio bitrate (if applicable to the selected audio_format). For PCM this
             may be 0.
+        audio_format: Session audio input format. PCM remains the default for backward
+            compatibility. Use OGG_OPUS when streaming one continuous Ogg Opus stream per
+            request ID.
+        ogg_opus_encoder: Optional client-side encoder settings. When set together with
+            ``audio_format=AudioFormat.OGG_OPUS``, ``send_audio()`` accepts raw PCM input
+            and the SDK encodes it to continuous Ogg Opus before sending.
+        on_encoded_audio: Optional callback invoked when internal Ogg Opus encoding
+            finishes for a request. Receives ``(req_id, encoded_audio_bytes)``.
         transport_frames: Callback for receiving animation frames (frame_data, is_last).
         on_error: Callback for error handling.
         on_close: Callback invoked when session closes.
@@ -87,6 +111,9 @@ class SessionConfig:
     expire_at: Optional[datetime] = None
     sample_rate: int = 16000
     bitrate: int = 0
+    audio_format: AudioFormat = AudioFormat.PCM_S16LE
+    ogg_opus_encoder: Optional[OggOpusEncoderConfig] = None
+    on_encoded_audio: Optional[Callable[[str, bytes], None]] = None
     transport_frames: Callable[[bytes, bool], None] = field(
         default=lambda data, last: None
     )
@@ -96,6 +123,9 @@ class SessionConfig:
     ingress_endpoint_url: str = ""
     livekit_egress: Optional[LiveKitEgressConfig] = None
     agora_egress: Optional[AgoraEgressConfig] = None
+
+    def __post_init__(self) -> None:
+        self.audio_format = AudioFormat(self.audio_format)
 
 
 class SessionConfigBuilder:
@@ -140,6 +170,27 @@ class SessionConfigBuilder:
     def with_bitrate(self, bitrate: int) -> "SessionConfigBuilder":
         """Set the audio bitrate (if applicable)."""
         self._config.bitrate = bitrate
+        return self
+
+    def with_audio_format(
+        self, audio_format: Union[AudioFormat, str]
+    ) -> "SessionConfigBuilder":
+        """Set the session audio input format."""
+        self._config.audio_format = AudioFormat(audio_format)
+        return self
+
+    def with_ogg_opus_encoder(
+        self, config: Optional[OggOpusEncoderConfig] = None
+    ) -> "SessionConfigBuilder":
+        """Enable client-side PCM-to-Ogg-Opus encoding for OGG_OPUS sessions."""
+        self._config.ogg_opus_encoder = config or OggOpusEncoderConfig()
+        return self
+
+    def with_on_encoded_audio(
+        self, handler: Callable[[str, bytes], None]
+    ) -> "SessionConfigBuilder":
+        """Set the callback invoked when internal Ogg Opus encoding finishes."""
+        self._config.on_encoded_audio = handler
         return self
 
     def with_transport_frames(

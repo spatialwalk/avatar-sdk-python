@@ -8,6 +8,8 @@ supporting audio streaming and receiving animation frames.
 from .avatar_session import AvatarSession, new_avatar_session
 from .errors import AvatarSDKError, AvatarSDKErrorCode, SessionTokenError
 from .session_config import (
+    AudioFormat,
+    OggOpusEncoderConfig,
     SessionConfig,
     SessionConfigBuilder,
     LiveKitEgressConfig,
@@ -23,6 +25,8 @@ __all__ = [
     "AvatarSDKError",
     "AvatarSDKErrorCode",
     "new_avatar_session",
+    "AudioFormat",
+    "OggOpusEncoderConfig",
     "SessionConfig",
     "SessionConfigBuilder",
     "LiveKitEgressConfig",

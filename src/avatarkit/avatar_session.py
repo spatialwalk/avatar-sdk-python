@@ -3,19 +3,28 @@
 import asyncio
 import inspect
 import json
+import logging
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import aiohttp
 import websockets
 
+from .audio_encoder import OggOpusStreamEncoder
 from .errors import AvatarSDKError, AvatarSDKErrorCode, SessionTokenError
 from .logid import generate_log_id
 from .proto.generated import message_pb2
-from .session_config import SessionConfig, SessionConfigBuilder
+from .session_config import (
+    AudioFormat,
+    OggOpusEncoderConfig,
+    SessionConfig,
+    SessionConfigBuilder,
+)
 
 SESSION_TOKEN_PATH = "/session-tokens"
 INGRESS_WEBSOCKET_PATH = "/websocket"
+
+logger = logging.getLogger(__name__)
 
 
 class AvatarSession:
@@ -43,6 +52,7 @@ class AvatarSession:
         self._last_req_id: Optional[str] = (
             None  # tracks most recent request for interrupt
         )
+        self._audio_encoder: Optional[OggOpusStreamEncoder] = None
         self._read_task: Optional[asyncio.Task] = None
         self._connection_id: Optional[str] = None
 
@@ -258,7 +268,9 @@ class AvatarSession:
         msg.type = message_pb2.MESSAGE_CLIENT_CONFIGURE_SESSION
         msg.client_configure_session.sample_rate = int(self._config.sample_rate)
         msg.client_configure_session.bitrate = int(self._config.bitrate)
-        msg.client_configure_session.audio_format = message_pb2.AUDIO_FORMAT_PCM_S16LE
+        msg.client_configure_session.audio_format = self._proto_audio_format(
+            self._config.audio_format
+        )
         msg.client_configure_session.transport_compression = (
             message_pb2.TRANSPORT_COMPRESSION_NONE
         )
@@ -386,7 +398,10 @@ class AvatarSession:
         """
         Send audio data to the server.
 
-        Currently supports 16kHz mono 16-bit PCM audio only.
+        Audio bytes must match the session-level ``audio_format`` negotiated during
+        ``start()``. For ``AudioFormat.OGG_OPUS``, callers can either send pre-encoded
+        Ogg Opus bytes directly, or enable ``ogg_opus_encoder`` on the session config so
+        ``send_audio()`` accepts raw PCM input and the SDK encodes it internally.
 
         Args:
             audio: Raw audio bytes to send.
@@ -408,11 +423,23 @@ class AvatarSession:
 
         req_id = self._current_req_id
 
+        encoded_stream: Optional[bytes] = None
+        payload = audio
+        use_internal_encoder = self._uses_internal_ogg_opus_encoder()
+        if use_internal_encoder:
+            encoder = self._get_or_create_audio_encoder()
+            encoded_chunk = encoder.encode(audio, end=end)
+            payload = encoded_chunk.payload
+            encoded_stream = encoded_chunk.completed_stream
+
+        if use_internal_encoder and not payload and not end:
+            return req_id
+
         # Create protobuf message
         msg = message_pb2.Message()
         msg.type = message_pb2.MESSAGE_CLIENT_AUDIO_INPUT
         msg.client_audio_input.req_id = req_id
-        msg.client_audio_input.audio = audio
+        msg.client_audio_input.audio = payload
         msg.client_audio_input.end = end
 
         # Serialize and send
@@ -427,10 +454,55 @@ class AvatarSession:
                 req_id=req_id,
             ) from e
 
+        if encoded_stream is not None:
+            self._notify_encoded_audio(req_id, encoded_stream)
+
         if end:
             self._current_req_id = None
+            self._audio_encoder = None
 
         return req_id
+
+    def _uses_internal_ogg_opus_encoder(self) -> bool:
+        return (
+            self._config.audio_format == AudioFormat.OGG_OPUS
+            and self._config.ogg_opus_encoder is not None
+        )
+
+    def _get_or_create_audio_encoder(self) -> OggOpusStreamEncoder:
+        if self._audio_encoder is None:
+            encoder_config = self._config.ogg_opus_encoder or OggOpusEncoderConfig()
+            self._audio_encoder = OggOpusStreamEncoder(
+                sample_rate=int(self._config.sample_rate),
+                bitrate=int(self._config.bitrate),
+                frame_duration_ms=int(encoder_config.frame_duration_ms),
+                application=str(encoder_config.application),
+                collect_encoded_output=self._config.on_encoded_audio is not None,
+            )
+
+        return self._audio_encoder
+
+    def _notify_encoded_audio(self, req_id: str, encoded_audio: bytes) -> None:
+        callback = self._config.on_encoded_audio
+        if callback is None:
+            return
+
+        try:
+            callback(req_id, encoded_audio)
+        except Exception:
+            logger.exception("on_encoded_audio callback raised an exception")
+
+    @staticmethod
+    def _proto_audio_format(audio_format: str) -> int:
+        audio_format = AudioFormat(audio_format)
+
+        if audio_format == AudioFormat.PCM_S16LE:
+            return message_pb2.AUDIO_FORMAT_PCM_S16LE
+
+        if audio_format == AudioFormat.OGG_OPUS:
+            return message_pb2.AUDIO_FORMAT_OGG_OPUS
+
+        raise ValueError(f"Unsupported audio format: {audio_format}")
 
     async def interrupt(self) -> str:
         """
@@ -469,6 +541,7 @@ class AvatarSession:
 
         # Clear current request ID so next send_audio creates a new one
         self._current_req_id = None
+        self._audio_encoder = None
 
         return req_id
 
@@ -483,6 +556,8 @@ class AvatarSession:
                 pass
             finally:
                 self._connection = None
+
+        self._audio_encoder = None
 
         if self._read_task is not None:
             # If we're calling close() from inside the read task itself (e.g. the
@@ -1001,6 +1076,12 @@ def new_avatar_session(**kwargs) -> AvatarSession:
         builder.with_sample_rate(kwargs["sample_rate"])
     if "bitrate" in kwargs:
         builder.with_bitrate(kwargs["bitrate"])
+    if "audio_format" in kwargs:
+        builder.with_audio_format(kwargs["audio_format"])
+    if "ogg_opus_encoder" in kwargs and kwargs["ogg_opus_encoder"] is not None:
+        builder.with_ogg_opus_encoder(kwargs["ogg_opus_encoder"])
+    if "on_encoded_audio" in kwargs and kwargs["on_encoded_audio"] is not None:
+        builder.with_on_encoded_audio(kwargs["on_encoded_audio"])
     if "transport_frames" in kwargs:
         builder.with_transport_frames(kwargs["transport_frames"])
     if "on_error" in kwargs:
