@@ -194,6 +194,11 @@ dependencies = [
     { name = "websockets" },
 ]
 
+[package.optional-dependencies]
+opus = [
+    { name = "opuslib" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -207,9 +212,11 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "nanoid", specifier = ">=2.0.0" },
+    { name = "opuslib", marker = "extra == 'opus'", specifier = ">=3.0.1" },
     { name = "protobuf", specifier = ">=5.28.3" },
     { name = "websockets", specifier = ">=10.0" },
 ]
+provides-extras = ["opus"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -624,6 +631,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/b7/9d/0250bf5935d88e214
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2e/0d/8630f13998638dc01e187fadd2e5c6d42d127d08aeb4943d231664d6e539/nanoid-2.0.0-py3-none-any.whl", hash = "sha256:90aefa650e328cffb0893bbd4c236cfd44c48bc1f2d0b525ecc53c3187b653bb", size = 5844, upload-time = "2018-11-20T14:45:50.165Z" },
 ]
+
+[[package]]
+name = "opuslib"
+version = "3.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/55/826befabb29fd3902bad6d6d7308790894c7ad4d73f051728a0c53d37cd7/opuslib-3.0.1.tar.gz", hash = "sha256:2cb045e5b03e7fc50dfefe431e3404dddddbd8f5961c10c51e32dfb69a044c97", size = 8550, upload-time = "2018-01-16T06:04:42.184Z" }
 
 [[package]]
 name = "packaging"

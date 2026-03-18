@@ -2,12 +2,28 @@
 
 A Python SDK for connecting to avatar services via WebSocket, supporting audio streaming and receiving animation frames.
 
+## Installation
+
+```bash
+pip install avatarkit
+```
+
+To enable the built-in PCM-to-Ogg-Opus encoder, install the optional `opus` extra:
+
+```bash
+pip install "avatarkit[opus]"
+```
+
+The optional encoder uses `opuslib`, which requires a working `libopus` runtime on the
+host system.
+
 ## Quick Start
 
 ```python
 import asyncio
 from datetime import datetime, timedelta, timezone
-from avatarkit import new_avatar_session
+
+from avatarkit import AudioFormat, new_avatar_session
 
 async def main():
     # Create session
@@ -29,7 +45,7 @@ async def main():
     print(f"Connected: {connection_id}")
 
     # Send audio
-    audio_data = b"..."  # Your PCM audio data
+    audio_data = b"..."  # Your PCM or Ogg Opus audio data
     request_id = await session.send_audio(audio_data, end=True)
     print(f"Sent audio: {request_id}")
 
@@ -52,7 +68,7 @@ The SDK provides two ways to configure a session:
 #### Option 1: Using `new_avatar_session()` (Recommended)
 
 ```python
-from avatarkit import new_avatar_session
+from avatarkit import AudioFormat, new_avatar_session
 
 session = new_avatar_session(
     avatar_id="avatar-123",
@@ -65,6 +81,7 @@ session = new_avatar_session(
     console_endpoint_url="https://console.us-west.spatialwalk.cloud/v1/console",
     ingress_endpoint_url="wss://api.us-west.spatialwalk.cloud/v2/driveningress",
     sample_rate=16000,  # Default: 16000 Hz
+    audio_format=AudioFormat.PCM_S16LE,
     transport_frames=on_frame_received,
     on_error=on_error,
     on_close=on_close
@@ -110,7 +127,12 @@ await session.close()
 
 ### Audio Format
 
-The SDK currently supports **mono 16-bit PCM (s16le)** audio:
+The SDK supports two session-level input formats:
+
+- `AudioFormat.PCM_S16LE` - mono 16-bit PCM bytes
+- `AudioFormat.OGG_OPUS` - one continuous Ogg Opus stream per request ID
+
+#### PCM input
 
 - Sample Rate: one of `[8000, 16000, 22050, 24000, 32000, 44100, 48000]`
 - Channels: 1 (mono)
@@ -118,13 +140,74 @@ The SDK currently supports **mono 16-bit PCM (s16le)** audio:
 - Format: Raw PCM bytes
 
 ```python
-# Example: Load PCM audio file
+from avatarkit import AudioFormat
+
+session = new_avatar_session(
+    ...,
+    sample_rate=16000,
+    audio_format=AudioFormat.PCM_S16LE,
+)
+
 with open("audio.pcm", "rb") as f:
     audio_data = f.read()
 
-# Send in chunks or all at once
 await session.send_audio(audio_data, end=True)
 ```
+
+#### Ogg Opus input
+
+- Sample Rate: one of `[8000, 12000, 16000, 24000, 48000]`
+- Channels: 1 (mono)
+- Format: Ogg Opus pages/chunks
+- Request contract: each request ID must carry one continuous Ogg Opus stream across one or more `send_audio()` calls, and the final chunk must use `end=True`
+
+```python
+from avatarkit import AudioFormat
+
+session = new_avatar_session(
+    ...,
+    sample_rate=24000,
+    bitrate=32000,
+    audio_format=AudioFormat.OGG_OPUS,
+)
+
+with open("audio.ogg", "rb") as f:
+    while chunk := f.read(4096):
+        await session.send_audio(chunk, end=False)
+
+await session.send_audio(b"", end=True)
+```
+
+#### Built-in PCM to Ogg Opus encoder
+
+If you want the session to negotiate `AudioFormat.OGG_OPUS` but still provide raw PCM
+bytes to `send_audio()`, enable the optional internal encoder.
+
+```python
+from avatarkit import AudioFormat, OggOpusEncoderConfig
+
+encoded_outputs = []
+
+session = new_avatar_session(
+    ...,
+    sample_rate=24000,
+    bitrate=32000,
+    audio_format=AudioFormat.OGG_OPUS,
+    ogg_opus_encoder=OggOpusEncoderConfig(frame_duration_ms=20),
+    on_encoded_audio=lambda req_id, payload: encoded_outputs.append((req_id, payload)),
+)
+
+with open("audio_24000.pcm", "rb") as f:
+    pcm_audio = f.read()
+
+await session.send_audio(pcm_audio, end=True)
+```
+
+Notes:
+
+- The internal encoder is optional; if you do not install `avatarkit[opus]`, keep using PCM or provide pre-encoded Ogg Opus bytes yourself.
+- `on_encoded_audio` fires when internal encoding completes for a request and receives `(req_id, encoded_audio_bytes)`.
+- Advanced usage still works: if `audio_format=AudioFormat.OGG_OPUS` and `ogg_opus_encoder` is unset, `send_audio()` forwards your pre-encoded Ogg Opus bytes unchanged.
 
 ### LiveKit Egress Mode
 
@@ -390,7 +473,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and setup
 git clone <repository-url>
 cd avatar-sdk-python
-uv sync
+uv sync --all-extras
 ```
 
 ### Running Tests
@@ -402,17 +485,19 @@ uv run pytest
 
 ### End-to-End Tests
 
-The repository includes opt-in network tests in `tests/test_e2e_errors.py`.
-They are skipped by default and only run when `AVATARKIT_RUN_E2E=1` is set.
+The repository includes opt-in network tests in `tests/test_e2e_errors.py` and
+`tests/test_e2e_request.py`. They are skipped by default and only run when
+`AVATARKIT_RUN_E2E=1` is set.
 
 ```bash
-AVATARKIT_RUN_E2E=1 uv run pytest tests/test_e2e_errors.py
+AVATARKIT_RUN_E2E=1 uv run pytest tests/test_e2e_errors.py tests/test_e2e_request.py
 ```
 
 Available e2e cases:
 
 - invalid WebSocket credentials -> expects `sessionTokenInvalid`
 - valid credentials + missing avatar -> expects `avatarNotFound`
+- valid credentials + real avatar + real audio -> sends a request and waits for the final animation frame
 
 Environment variables:
 
@@ -422,6 +507,13 @@ Environment variables:
 - `AVATARKIT_E2E_CONSOLE_ENDPOINT` - Required for the real `avatarNotFound` test
 - `AVATARKIT_E2E_INGRESS_ENDPOINT` - Required for the real `avatarNotFound` test unless you use the default public ingress endpoint for the invalid-token test only
 - `AVATARKIT_E2E_MISSING_AVATAR_ID` - Optional avatar id that should not exist; defaults to `avatarkit-e2e-missing-avatar-404`
+- `AVATARKIT_E2E_AVATAR_ID` - Required for the real request test
+- `AVATARKIT_E2E_AUDIO_FORMAT` - Optional, `pcm_s16le` or `ogg_opus`; defaults to `pcm_s16le`
+- `AVATARKIT_E2E_AUDIO_PATH` - Optional audio file path; defaults to `audio_16000.pcm` for PCM and `audio.ogg` for Ogg Opus
+- `AVATARKIT_E2E_SAMPLE_RATE` - Optional sample rate; defaults to `16000` for PCM and `24000` for Ogg Opus
+- `AVATARKIT_E2E_BITRATE` - Optional bitrate; defaults to `32000`
+- `AVATARKIT_E2E_CHUNK_SIZE` - Optional chunk size for streaming Ogg Opus; defaults to `4096`
+- `AVATARKIT_E2E_TIMEOUT_SECONDS` - Optional request timeout; defaults to `45`
 
 Example:
 
@@ -432,12 +524,21 @@ export AVATARKIT_E2E_APP_ID="your-app-id"
 export AVATARKIT_E2E_CONSOLE_ENDPOINT="https://console.us-west.spatialwalk.cloud/v1/console"
 export AVATARKIT_E2E_INGRESS_ENDPOINT="wss://api.us-west.spatialwalk.cloud/v2/driveningress"
 export AVATARKIT_E2E_MISSING_AVATAR_ID="avatarkit-e2e-missing-avatar-404"
+export AVATARKIT_E2E_AVATAR_ID="your-real-avatar-id"
+export AVATARKIT_E2E_AUDIO_FORMAT="pcm_s16le"
+export AVATARKIT_E2E_AUDIO_PATH="audio_16000.pcm"
 
-uv run pytest tests/test_e2e_errors.py
+uv run pytest tests/test_e2e_errors.py tests/test_e2e_request.py
 ```
 
 If the credentialed variables are missing, the invalid-token e2e test still runs, and the
 real `avatarNotFound` test is skipped automatically.
+
+To run only the real request smoke test:
+
+```bash
+AVATARKIT_RUN_E2E=1 uv run pytest tests/test_e2e_request.py -k send_audio_receives_animation_frames -s
+```
 
 ## License
 

@@ -16,7 +16,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from avatarkit import SessionTokenError, new_avatar_session
+from avatarkit import (
+    AudioFormat,
+    OggOpusEncoderConfig,
+    SessionTokenError,
+    new_avatar_session,
+)
 
 # Configuration
 AUDIO_FILE_PATH = "../../audio.pcm"
@@ -74,6 +79,16 @@ class AnimationCollector:
         return [bytes(frame) for frame in self.frames]
 
 
+class EncodedAudioCollector:
+    """Collects internal Ogg Opus encoder output when enabled."""
+
+    def __init__(self):
+        self.results: List[tuple[str, bytes]] = []
+
+    def on_encoded_audio(self, req_id: str, data: bytes):
+        self.results.append((req_id, bytes(data)))
+
+
 async def main():
     """Main entry point for the example."""
     # Load configuration from environment
@@ -82,9 +97,12 @@ async def main():
     # Load audio file
     audio = load_audio(AUDIO_FILE_PATH)
     print(f"Loaded audio file: {len(audio)} bytes")
+    audio_format = load_audio_format()
 
     # Create animation collector
     collector = AnimationCollector()
+    encoded_collector = EncodedAudioCollector()
+    use_internal_encoder = load_use_internal_ogg_opus_encoder()
 
     # Create avatar session
     session = new_avatar_session(
@@ -95,6 +113,18 @@ async def main():
         ingress_endpoint_url=config["ingress_url"],
         avatar_id=config["avatar_id"],
         expire_at=datetime.now(timezone.utc) + timedelta(minutes=SESSION_TTL),
+        sample_rate=audio_format_sample_rate(audio_format),
+        audio_format=audio_format,
+        ogg_opus_encoder=(
+            OggOpusEncoderConfig()
+            if audio_format == AudioFormat.OGG_OPUS and use_internal_encoder
+            else None
+        ),
+        on_encoded_audio=(
+            encoded_collector.on_encoded_audio
+            if audio_format == AudioFormat.OGG_OPUS and use_internal_encoder
+            else None
+        ),
         transport_frames=collector.transport_frame,
         on_error=collector.on_error,
         on_close=collector.on_close,
@@ -113,7 +143,12 @@ async def main():
 
         # Send audio
         print("Sending audio...")
-        request_id = await session.send_audio(audio, end=True)
+
+        if audio_format == AudioFormat.OGG_OPUS and not use_internal_encoder:
+            request_id = await send_streaming_audio(session, audio)
+        else:
+            request_id = await session.send_audio(audio, end=True)
+
         print(f"Sent audio request: {request_id}")
 
         # Wait for animation frames
@@ -129,6 +164,9 @@ async def main():
             "audio": list(audio[:100]),  # Just first 100 bytes for demo
             "animations_count": len(animations),
             "animations_sizes": [len(anim) for anim in animations],
+            "encoded_audio_sizes": [
+                len(payload) for _, payload in encoded_collector.results
+            ],
         }
 
         print("\nResponse summary:")
@@ -202,6 +240,35 @@ def load_audio(path: str) -> bytes:
 
     with open(audio_path, "rb") as f:
         return f.read()
+
+
+def load_audio_format() -> AudioFormat:
+    raw_audio_format = os.getenv("AVATAR_AUDIO_FORMAT", AudioFormat.PCM_S16LE.value)
+    return AudioFormat(raw_audio_format.strip().lower())
+
+
+def load_use_internal_ogg_opus_encoder() -> bool:
+    return os.getenv("AVATAR_USE_INTERNAL_OGG_OPUS_ENCODER", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    )
+
+
+def audio_format_sample_rate(audio_format: AudioFormat) -> int:
+    if audio_format == AudioFormat.OGG_OPUS:
+        return 24000
+
+    return 16000
+
+
+async def send_streaming_audio(session, audio: bytes, chunk_size: int = 4096) -> str:
+    for offset in range(0, len(audio), chunk_size):
+        await session.send_audio(audio[offset : offset + chunk_size], end=False)
+
+    return await session.send_audio(b"", end=True)
 
 
 if __name__ == "__main__":

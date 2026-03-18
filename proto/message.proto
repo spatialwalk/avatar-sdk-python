@@ -16,6 +16,7 @@ enum MessageType {
 
 enum AudioFormat {
   AUDIO_FORMAT_PCM_S16LE = 0;
+  AUDIO_FORMAT_OGG_OPUS = 1;
 }
 
 enum TransportCompression {
@@ -62,6 +63,8 @@ message AgoraEgressConfig {
 message ClientConfigureSession {
   int32 sample_rate = 1;
   int32 bitrate = 2;
+  // AUDIO_FORMAT_PCM_S16LE sends raw PCM16 mono audio at sample_rate.
+  // AUDIO_FORMAT_OGG_OPUS sends one continuous Ogg Opus stream per req_id.
   AudioFormat audio_format = 3;
   TransportCompression transport_compression = 4;
   // Egress configuration (optional)
@@ -80,6 +83,9 @@ message ServerConfirmSession {
 message ClientAudioInput {
   string req_id = 1;
   bool end = 2;
+  // For AUDIO_FORMAT_OGG_OPUS, audio carries a slice of the continuous Ogg stream.
+  // Each req_id must use a single logical stream spanning multiple messages.
+  // The final message for the req_id must set end=true.
   bytes audio = 3;
 }
 

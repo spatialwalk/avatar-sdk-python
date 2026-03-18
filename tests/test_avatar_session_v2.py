@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import unittest
 from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
@@ -11,13 +12,17 @@ from websockets.frames import Close
 from websockets.http11 import Response
 
 from avatarkit import (
+    AudioFormat,
     AvatarSDKError,
     AvatarSDKErrorCode,
     LiveKitEgressConfig,
+    OggOpusEncoderConfig,
     SessionTokenError,
     new_avatar_session,
 )
 from avatarkit.proto.generated import message_pb2
+
+_HAS_OPUSLIB = importlib.util.find_spec("opuslib") is not None
 
 
 class _DummyTask:
@@ -314,6 +319,216 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             first.client_configure_session.livekit_egress.idle_timeout, 120
         )
+
+        await session.close()
+
+    async def test_start_with_ogg_opus_sends_audio_format(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            sample_rate=24000,
+            bitrate=32000,
+            audio_format=AudioFormat.OGG_OPUS,
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        fake_ws: _FakeWebSocket = session._connection  # type: ignore[assignment]
+        self.assertIsNotNone(fake_ws)
+        self.assertGreaterEqual(len(fake_ws.sent), 1)
+
+        first = message_pb2.Message()
+        first.ParseFromString(fake_ws.sent[0])
+
+        self.assertEqual(first.type, message_pb2.MESSAGE_CLIENT_CONFIGURE_SESSION)
+        self.assertEqual(first.client_configure_session.sample_rate, 24000)
+        self.assertEqual(first.client_configure_session.bitrate, 32000)
+        self.assertEqual(
+            first.client_configure_session.audio_format,
+            message_pb2.AUDIO_FORMAT_OGG_OPUS,
+        )
+
+        await session.close()
+
+    async def test_send_audio_ogg_opus_passthrough_keeps_preencoded_bytes(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            sample_rate=24000,
+            audio_format=AudioFormat.OGG_OPUS,
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        fake_ws: _FakeWebSocket = session._connection  # type: ignore[assignment]
+        pre_encoded = b"OggS-pre-encoded"
+        req_id = await session.send_audio(pre_encoded, end=True)
+
+        audio_msg = message_pb2.Message()
+        audio_msg.ParseFromString(fake_ws.sent[1])
+
+        self.assertEqual(audio_msg.client_audio_input.req_id, req_id)
+        self.assertEqual(audio_msg.client_audio_input.audio, pre_encoded)
+        self.assertTrue(audio_msg.client_audio_input.end)
+
+        await session.close()
+
+    @unittest.skipUnless(_HAS_OPUSLIB, "opuslib is required for internal encoder tests")
+    async def test_send_audio_internal_encoder_outputs_ogg_opus_and_callback(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        encoded_results: list[tuple[str, bytes]] = []
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            sample_rate=24000,
+            bitrate=32000,
+            audio_format=AudioFormat.OGG_OPUS,
+            ogg_opus_encoder=OggOpusEncoderConfig(),
+            on_encoded_audio=lambda req_id, payload: encoded_results.append(
+                (req_id, bytes(payload))
+            ),
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        fake_ws: _FakeWebSocket = session._connection  # type: ignore[assignment]
+        pcm_frame = b"\x00\x00" * 480
+        req_id = await session.send_audio(pcm_frame, end=True)
+
+        audio_msg = message_pb2.Message()
+        audio_msg.ParseFromString(fake_ws.sent[1])
+
+        self.assertEqual(audio_msg.client_audio_input.req_id, req_id)
+        self.assertEqual(audio_msg.client_audio_input.audio[:4], b"OggS")
+        self.assertTrue(audio_msg.client_audio_input.end)
+        self.assertEqual(
+            encoded_results, [(req_id, audio_msg.client_audio_input.audio)]
+        )
+
+        await session.close()
+
+    @unittest.skipUnless(_HAS_OPUSLIB, "opuslib is required for internal encoder tests")
+    async def test_send_audio_logs_callback_errors(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            sample_rate=24000,
+            audio_format=AudioFormat.OGG_OPUS,
+            ogg_opus_encoder=OggOpusEncoderConfig(),
+            on_encoded_audio=lambda _req_id, _payload: (_ for _ in ()).throw(
+                ValueError("callback failed")
+            ),
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        with self.assertLogs("avatarkit.avatar_session", level="ERROR") as logs:
+            await session.send_audio(b"\x00\x00" * 480, end=True)
+
+        self.assertIn("on_encoded_audio callback raised an exception", logs.output[0])
+
+        await session.close()
+
+    @unittest.skipUnless(_HAS_OPUSLIB, "opuslib is required for internal encoder tests")
+    async def test_send_audio_internal_encoder_buffers_until_frame_ready(self):
+        async def fake_connect(url, additional_headers=None, **_kwargs):
+            return _FakeWebSocket(recv_messages=[_mk_confirm("server-conn")])
+
+        def fake_create_task(coro):
+            coro.close()
+            return _DummyTask()
+
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            sample_rate=24000,
+            audio_format=AudioFormat.OGG_OPUS,
+            ogg_opus_encoder=OggOpusEncoderConfig(),
+        )
+        session._session_token = "tok-1"
+
+        with (
+            patch("avatarkit.avatar_session.websockets.connect", new=fake_connect),
+            patch("avatarkit.avatar_session.asyncio.create_task", new=fake_create_task),
+        ):
+            await session.start()
+
+        fake_ws: _FakeWebSocket = session._connection  # type: ignore[assignment]
+
+        req_id = await session.send_audio(b"\x00\x00" * 100, end=False)
+        self.assertEqual(len(fake_ws.sent), 1)
+
+        await session.send_audio(b"\x00\x00" * 380, end=True)
+        self.assertEqual(len(fake_ws.sent), 2)
+
+        audio_msg = message_pb2.Message()
+        audio_msg.ParseFromString(fake_ws.sent[1])
+
+        self.assertEqual(audio_msg.client_audio_input.req_id, req_id)
+        self.assertEqual(audio_msg.client_audio_input.audio[:4], b"OggS")
+        self.assertTrue(audio_msg.client_audio_input.end)
 
         await session.close()
 
