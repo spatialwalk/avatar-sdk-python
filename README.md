@@ -509,8 +509,9 @@ Environment variables:
 - `AVATARKIT_E2E_MISSING_AVATAR_ID` - Optional avatar id that should not exist; defaults to `avatarkit-e2e-missing-avatar-404`
 - `AVATARKIT_E2E_AVATAR_ID` - Required for the real request test
 - `AVATARKIT_E2E_AUDIO_FORMAT` - Optional, `pcm_s16le` or `ogg_opus`; defaults to `pcm_s16le`
-- `AVATARKIT_E2E_AUDIO_PATH` - Optional audio file path; defaults to `audio_16000.pcm` for PCM and `audio.ogg` for Ogg Opus
-- `AVATARKIT_E2E_SAMPLE_RATE` - Optional sample rate; defaults to `16000` for PCM and `24000` for Ogg Opus
+- `AVATARKIT_E2E_USE_INTERNAL_OGG_OPUS_ENCODER` - Optional, set to `1` to test the SDK's built-in PCM-to-Ogg-Opus encoder
+- `AVATARKIT_E2E_AUDIO_PATH` - Optional audio file path; defaults to `audio_16000.pcm` for PCM and for Ogg Opus when the internal encoder is enabled, otherwise `audio.ogg`
+- `AVATARKIT_E2E_SAMPLE_RATE` - Optional sample rate; defaults to `16000` for PCM and for Ogg Opus when the internal encoder is enabled, otherwise `24000`
 - `AVATARKIT_E2E_BITRATE` - Optional bitrate; defaults to `32000`
 - `AVATARKIT_E2E_CHUNK_SIZE` - Optional chunk size for streaming Ogg Opus; defaults to `4096`
 - `AVATARKIT_E2E_TIMEOUT_SECONDS` - Optional request timeout; defaults to `45`
@@ -529,6 +530,23 @@ export AVATARKIT_E2E_AUDIO_FORMAT="pcm_s16le"
 export AVATARKIT_E2E_AUDIO_PATH="audio_16000.pcm"
 
 uv run pytest tests/test_e2e_errors.py tests/test_e2e_request.py
+```
+
+To test the SDK's built-in Ogg Opus encoder with a raw PCM fixture:
+
+```bash
+export AVATARKIT_RUN_E2E=1
+export AVATARKIT_E2E_API_KEY="your-api-key"
+export AVATARKIT_E2E_APP_ID="your-app-id"
+export AVATARKIT_E2E_CONSOLE_ENDPOINT="https://console.us-west.spatialwalk.cloud/v1/console"
+export AVATARKIT_E2E_INGRESS_ENDPOINT="wss://api.us-west.spatialwalk.cloud/v2/driveningress"
+export AVATARKIT_E2E_AVATAR_ID="your-real-avatar-id"
+export AVATARKIT_E2E_AUDIO_FORMAT="ogg_opus"
+export AVATARKIT_E2E_USE_INTERNAL_OGG_OPUS_ENCODER="1"
+export AVATARKIT_E2E_AUDIO_PATH="audio_16000.pcm"
+export AVATARKIT_E2E_SAMPLE_RATE="16000"
+
+uv run pytest tests/test_e2e_request.py -k send_audio_receives_animation_frames -s
 ```
 
 If the credentialed variables are missing, the invalid-token e2e test still runs, and the
