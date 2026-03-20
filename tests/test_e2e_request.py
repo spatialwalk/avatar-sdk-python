@@ -30,19 +30,41 @@ def _require_env(*names: str) -> dict[str, str]:
 class _AnimationCollector:
     def __init__(self):
         self.frames: list[tuple[message_pb2.Message, bool]] = []
+        self.last = False
         self.error: Exception | None = None
-        self.done = asyncio.Event()
+        self._done = asyncio.Event()
 
     def on_frame(self, payload: bytes, is_last: bool) -> None:
         envelope = message_pb2.Message()
         envelope.ParseFromString(payload)
+        print(f"animation frame payload length: {len(payload)} bytes", flush=True)
         self.frames.append((envelope, is_last))
         if is_last:
-            self.done.set()
+            self.last = True
+            self.finish(None)
 
     def on_error(self, error: Exception) -> None:
-        self.error = error
-        self.done.set()
+        self.finish(error)
+
+    def on_close(self) -> None:
+        if not self.last and not self.error:
+            self.finish(Exception("Session closed before final animation frame"))
+        else:
+            self.finish(None)
+
+    def finish(self, error: Exception | None) -> None:
+        if error is not None and self.error is None:
+            self.error = error
+        self._done.set()
+
+    async def wait(self, timeout: float) -> None:
+        try:
+            await asyncio.wait_for(self._done.wait(), timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError("Timed out waiting for animation frames") from exc
+
+        if self.error is not None:
+            raise self.error
 
 
 @unittest.skipUnless(
@@ -118,6 +140,7 @@ class TestE2ERequest(unittest.IsolatedAsyncioTestCase):
             ),
             transport_frames=collector.on_frame,
             on_error=collector.on_error,
+            on_close=collector.on_close,
         )
 
         try:
@@ -136,14 +159,12 @@ class TestE2ERequest(unittest.IsolatedAsyncioTestCase):
                 chunk_size,
                 use_internal_ogg_opus_encoder,
             )
-            await asyncio.wait_for(collector.done.wait(), timeout=timeout_seconds)
+            await collector.wait(timeout=timeout_seconds)
         finally:
             await session.close()
 
-        if collector.error is not None:
-            raise collector.error
-
         self.assertGreater(len(collector.frames), 0)
+        self.assertTrue(collector.last)
 
         last_message, last_flag = collector.frames[-1]
         self.assertTrue(last_flag)
