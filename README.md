@@ -518,6 +518,7 @@ Environment variables:
 - `AVATARKIT_E2E_BITRATE` - Optional bitrate; defaults to `32000`
 - `AVATARKIT_E2E_CHUNK_SIZE` - Optional chunk size for streaming Ogg Opus; defaults to `4096`
 - `AVATARKIT_E2E_TIMEOUT_SECONDS` - Optional request timeout; defaults to `45`
+- `AVATARKIT_E2E_LIVEKIT_URL` - Required for the real invalid livekit tokrn test
 
 Example:
 
@@ -531,6 +532,7 @@ export AVATARKIT_E2E_MISSING_AVATAR_ID="avatarkit-e2e-missing-avatar-404"
 export AVATARKIT_E2E_AVATAR_ID="your-real-avatar-id"
 export AVATARKIT_E2E_AUDIO_FORMAT="pcm_s16le"
 export AVATARKIT_E2E_AUDIO_PATH="audio_16000.pcm"
+export AVATARKIT_E2E_LIVEKIT_URL="wss://livekit.example.com"
 
 uv run pytest tests/test_e2e_errors.py tests/test_e2e_request.py
 ```
