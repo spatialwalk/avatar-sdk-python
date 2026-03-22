@@ -6,6 +6,7 @@ from typing import cast
 from avatarkit import (
     AvatarSDKError,
     AvatarSDKErrorCode,
+    LiveKitEgressConfig,
     SessionTokenError,
     new_avatar_session,
 )
@@ -99,3 +100,55 @@ class TestE2EErrors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(err.http_status, 404)
         self.assertIsNotNone(err.server_detail)
         self.assertIn("Avatar not found", cast(str, err.server_detail))
+
+    async def test_start_with_invalid_livekit_token_surfaces_invalid_egress_config(
+        self,
+    ):
+        env = _require_env(
+            "AVATARKIT_E2E_API_KEY",
+            "AVATARKIT_E2E_APP_ID",
+            "AVATARKIT_E2E_CONSOLE_ENDPOINT",
+            "AVATARKIT_E2E_INGRESS_ENDPOINT",
+            "AVATARKIT_E2E_AVATAR_ID",
+            "AVATARKIT_E2E_LIVEKIT_URL",
+        )
+
+        session = new_avatar_session(
+            api_key=env["AVATARKIT_E2E_API_KEY"],
+            app_id=env["AVATARKIT_E2E_APP_ID"],
+            console_endpoint_url=env["AVATARKIT_E2E_CONSOLE_ENDPOINT"],
+            ingress_endpoint_url=env["AVATARKIT_E2E_INGRESS_ENDPOINT"],
+            avatar_id=env["AVATARKIT_E2E_AVATAR_ID"],
+            expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            livekit_egress=LiveKitEgressConfig(
+                url=env["AVATARKIT_E2E_LIVEKIT_URL"],
+                api_token="avatarkit-e2e-invalid-livekit-token",
+                room_name=os.getenv(
+                    "AVATARKIT_E2E_LIVEKIT_ROOM_NAME",
+                    "avatarkit-e2e-invalid-token-room",
+                ).strip(),
+                publisher_id=os.getenv(
+                    "AVATARKIT_E2E_LIVEKIT_PUBLISHER_ID",
+                    "avatarkit-e2e-invalid-token-publisher",
+                ).strip(),
+            ),
+        )
+
+        try:
+            await session.init()
+            with self.assertRaises(AvatarSDKError) as cm:
+                await session.start()
+        except SessionTokenError as exc:
+            raise AssertionError(
+                "Expected valid e2e credentials, but session token creation failed"
+            ) from exc
+        finally:
+            await session.close()
+
+        err = cm.exception
+        print(err.message)
+        self.assertEqual(err.code, AvatarSDKErrorCode.invalidEgressConfig)
+        self.assertEqual(err.phase, "websocket_handshake")
+        self.assertEqual(err.server_code, "16")
+        self.assertIsNotNone(err.server_detail)
+        self.assertIn("unauthorized", cast(str, err.server_detail).lower())
