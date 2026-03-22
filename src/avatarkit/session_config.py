@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Callable, Optional, Union
+import warnings
 
 
 class AudioFormat(str, Enum):
@@ -31,8 +32,10 @@ class LiveKitEgressConfig:
 
     Attributes:
         url: LiveKit server URL (e.g., wss://livekit.example.com).
-        api_key: LiveKit API key.
-        api_secret: LiveKit API secret.
+        api_key: Deprecated. LiveKit API key. Optional when api_token is provided.
+        api_secret: Deprecated. LiveKit API secret. Optional when api_token is provided.
+        api_token: Pre-generated LiveKit access token. Preferred over api_key and
+            api_secret when provided.
         room_name: LiveKit room name to join.
         publisher_id: Publisher identity in the room.
         extra_attributes: Additional key-value attributes for the LiveKit participant.
@@ -41,12 +44,25 @@ class LiveKitEgressConfig:
     """
 
     url: str = ""
+    # deprecated
     api_key: str = field(default="", repr=False)
+    # deprecated
     api_secret: str = field(default="", repr=False)
+    api_token: str = field(default="", repr=False)
     room_name: str = ""
     publisher_id: str = ""
     extra_attributes: dict[str, str] = field(default_factory=dict)
     idle_timeout: int = 0
+
+    def __post_init__(self) -> None:
+        if self.api_key or self.api_secret:
+            warnings.warn(
+                "LiveKitEgressConfig.api_key and LiveKitEgressConfig.api_secret are "
+                "deprecated and will be removed in a future release; use api_token "
+                "instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
 
 
 @dataclass

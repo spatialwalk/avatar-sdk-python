@@ -225,13 +225,15 @@ session = new_avatar_session(
     expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
     livekit_egress=LiveKitEgressConfig(
         url="wss://livekit.example.com",
-        api_key="livekit-api-key",
-        api_secret="livekit-api-secret",
+        api_token="livekit-token",
         room_name="my-room",
         publisher_id="avatar-publisher",
     ),
 )
 ```
+
+`api_key` and `api_secret` remain supported for backward compatibility, but they are
+deprecated in the Python SDK. Prefer `api_token` for new integrations.
 
 When LiveKit egress is enabled:
 - The server streams output to the specified LiveKit room
@@ -392,8 +394,9 @@ Configuration for streaming to a LiveKit room.
 #### Fields
 
 - `url: str` - LiveKit server URL (e.g., `wss://livekit.example.com`)
-- `api_key: str` - LiveKit API key
-- `api_secret: str` - LiveKit API secret
+- `api_key: str` - Deprecated LiveKit API key
+- `api_secret: str` - Deprecated LiveKit API secret
+- `api_token: str` - Preferred pre-generated LiveKit access token
 - `room_name: str` - LiveKit room name to join
 - `publisher_id: str` - Publisher identity in the room
 - `extra_attributes: dict[str, str]` - Extra LiveKit participant attributes

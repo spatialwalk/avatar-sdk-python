@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
 from unittest.mock import patch
@@ -285,8 +286,7 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
             app_id="app-1",
             livekit_egress=LiveKitEgressConfig(
                 url="wss://livekit.example.com",
-                api_key="lk-api-key",
-                api_secret="lk-api-secret",
+                api_token="lk-token",
                 room_name="lk-room",
                 publisher_id="publisher-1",
                 extra_attributes={"role": "avatar", "region": "us-west"},
@@ -317,10 +317,31 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
             {"role": "avatar", "region": "us-west"},
         )
         self.assertEqual(
+            first.client_configure_session.livekit_egress.api_token, "lk-token"
+        )
+        self.assertEqual(
             first.client_configure_session.livekit_egress.idle_timeout, 120
         )
 
         await session.close()
+
+    def test_livekit_egress_legacy_credentials_emit_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            config = LiveKitEgressConfig(
+                url="wss://livekit.example.com",
+                api_key="lk-api-key",
+                api_secret="lk-api-secret",
+                room_name="lk-room",
+                publisher_id="publisher-1",
+            )
+
+        self.assertEqual(config.api_key, "lk-api-key")
+        self.assertEqual(config.api_secret, "lk-api-secret")
+        self.assertEqual(len(caught), 1)
+        self.assertIs(caught[0].category, FutureWarning)
+        self.assertIn("deprecated", str(caught[0].message).lower())
+        self.assertIn("api_token", str(caught[0].message))
 
     async def test_start_with_ogg_opus_sends_audio_format(self):
         async def fake_connect(url, additional_headers=None, **_kwargs):
@@ -728,6 +749,30 @@ class TestAvatarSessionV2(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(err, AvatarSDKError)
         self.assertEqual(err.code, AvatarSDKErrorCode.creditsExhausted)
         self.assertEqual(err.server_code, "4001")
+
+    async def test_runtime_grpc_unauthenticated_egress_error_is_mapped(self):
+        got: list[Exception] = []
+        session = new_avatar_session(
+            ingress_endpoint_url="https://ingress.example.com",
+            console_endpoint_url="https://console.example.com",
+            api_key="api",
+            avatar_id="avatar-1",
+            app_id="app-1",
+            on_error=got.append,
+        )
+
+        await session._handle_binary_message(
+            _mk_server_error(
+                code=16,
+                message="failed to create connection: failed to connect to room: unauthorized: invalid token",
+            )
+        )
+
+        self.assertEqual(len(got), 1)
+        err = cast(AvatarSDKError, got[0])
+        self.assertIsInstance(err, AvatarSDKError)
+        self.assertEqual(err.code, AvatarSDKErrorCode.invalidEgressConfig)
+        self.assertEqual(err.server_code, "16")
 
     async def test_handshake_server_error_maps_business_code_from_message(self):
         async def fake_connect(url, additional_headers=None, **_kwargs):

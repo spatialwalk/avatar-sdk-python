@@ -287,6 +287,9 @@ class AvatarSession:
             msg.client_configure_session.livekit_egress.api_secret = (
                 self._config.livekit_egress.api_secret
             )
+            msg.client_configure_session.livekit_egress.api_token = (
+                self._config.livekit_egress.api_token
+            )
             msg.client_configure_session.livekit_egress.room_name = (
                 self._config.livekit_egress.room_name
             )
@@ -777,6 +780,19 @@ class AvatarSession:
     ) -> AvatarSDKErrorCode:
         detail_text = cls._normalize_error_text(server_code, title, detail)
 
+        if server_code in ("3", "INVALID_ARGUMENT"):
+            if (
+                "livekit" in detail_text
+                or "agora" in detail_text
+                or "egress" in detail_text
+            ):
+                return AvatarSDKErrorCode.invalidEgressConfig
+            return AvatarSDKErrorCode.invalidRequest
+        if server_code in ("16", "UNAUTHENTICATED"):
+            return AvatarSDKErrorCode.invalidEgressConfig
+        if server_code in ("14", "UNAVAILABLE"):
+            return AvatarSDKErrorCode.egressUnavailable
+
         if server_code == "4001":
             return AvatarSDKErrorCode.creditsExhausted
         if server_code == "4002":
@@ -809,6 +825,12 @@ class AvatarSession:
         ):
             return AvatarSDKErrorCode.idleTimeout
         if "livekit_egress" in detail_text or "agora_egress" in detail_text:
+            return AvatarSDKErrorCode.invalidEgressConfig
+        if (
+            "missing livekit credentials" in detail_text
+            or "provide api_token or both api_key and api_secret" in detail_text
+            or "unauthorized" in detail_text
+        ):
             return AvatarSDKErrorCode.invalidEgressConfig
         if (
             "egress client is not configured on server" in detail_text

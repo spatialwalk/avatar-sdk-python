@@ -34,9 +34,9 @@ enum EgressType {
 message LiveKitEgressConfig {
   // LiveKit server URL (e.g., wss://livekit.example.com)
   string url = 1;
-  // LiveKit API key
+  // Deprecated: use api_token instead. Optional when api_token is provided.
   string api_key = 2;
-  // LiveKit API secret
+  // Deprecated: use api_token instead. Optional when api_token is provided.
   string api_secret = 3;
   // LiveKit room name to join
   string room_name = 4;
@@ -46,6 +46,8 @@ message LiveKitEgressConfig {
   map<string, string> extra_attributes = 6;
   // Idle timeout in seconds. Server closes the connection when it is completely silent.
   int32 idle_timeout = 7;
+  // Pre-generated LiveKit access token. Preferred over api_key/api_secret when set.
+  string api_token = 8;
 }
 
 // AgoraEgressConfig contains configuration for streaming to an Agora channel
